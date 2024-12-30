@@ -1,6 +1,7 @@
 "use client";
 import React, { useState, useEffect } from "react";
 import { FiUploadCloud, FiTrash2 } from "react-icons/fi"; // Import icons
+import RichTextEditor from "./RichTextEditor";
 
 interface BlogPostFormProps {
   initialData?: any; // Data for editing a blog
@@ -62,24 +63,8 @@ const BlogPostForm: React.FC<BlogPostFormProps> = ({
           name="title"
           value={formData.title}
           onChange={handleChange}
-          className="w-full px-4 py-3 border border-gray-300 rounded-lg"
+          className="w-full px-4 py-3 border border-gray-300 rounded-xl"
           placeholder="Enter blog title"
-          required
-        />
-      </div>
-
-      <div className="mb-6">
-        <label htmlFor="content" className="block text-lg font-medium mb-2">
-          Blog Content
-        </label>
-        <textarea
-          id="content"
-          name="content"
-          value={formData.content}
-          onChange={handleChange}
-          className="w-full px-4 py-3 border border-gray-300 rounded-lg"
-          placeholder="Write your blog content here"
-          rows={6}
           required
         />
       </div>
@@ -112,20 +97,39 @@ const BlogPostForm: React.FC<BlogPostFormProps> = ({
         {formData.image && (
           <div className="mt-4 flex items-center gap-4 px-4 py-2 rounded-lg">
             <p className="text-gray-800 font-medium">
-              Selected file: <span className="text-green-600">{formData.image.name}</span>
+              Selected file:{" "}
+              <span className="text-green-600">{formData.image.name}</span>
             </p>
             <button
               type="button"
               onClick={handleRemoveImage}
               className="flex items-center text-red-600 rounded-lg font-bold"
             >
-              <FiTrash2 className="size-5"/>
+              <FiTrash2 className="size-5" />
             </button>
           </div>
         )}
-
-        
       </div>
+
+      <div className="mb-4">
+        <label
+          htmlFor="post_content"
+          className="block text-lg font-medium mb-2"
+        >
+          Blog Content
+        </label>
+        <RichTextEditor
+          value={formData.content}
+          onChange={(content) =>
+            setFormData((prev) => ({
+              ...prev,
+              content,
+            }))
+          }
+        />
+      </div>
+
+     
 
       <div className="text-right">
         <button

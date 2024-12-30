@@ -41,7 +41,7 @@ const HeaderMenu: React.FC = () => {
   };
 
   return (
-    <header className="bg-[#191C27] shadow-md border-b border-gray-300">
+    <header className="bg-[#191C27] shadow-md border-b border-gray-300 sticky top-0 left-0 w-full z-50">
       <nav className="container mx-auto flex items-center justify-between py-4 px-6 text-white">
         <div className="flex items-center space-x-4">
           <Image

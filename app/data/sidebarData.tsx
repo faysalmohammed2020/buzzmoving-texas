@@ -30,39 +30,11 @@ export const sidebarItems: SidebarItem[] = [
     icon: <FaPenFancy className="size-6" />,
   },
 
-  // Comments Moderation
-  {
-    href: "/dashboard/comments",
-    label: "Comments Moderation",
-    icon: <HiOutlineUserGroup className="size-6" />,
-  },
-
   // Analytics
   {
     href: "/dashboard/analytics",
     label: "Analytics",
     icon: <AiOutlineBarChart className="size-6" />,
-  },
-
-  // Media Library
-  {
-    href: "/dashboard/media-library",
-    label: "Media Library",
-    icon: <FiImage className="size-6" />,
-  },
-
-  // User Management
-  {
-    href: "/dashboard/user-management",
-    label: "User Management",
-    icon: <HiOutlineUserGroup className="size-6" />,
-  },
-
-  // SEO Settings
-  {
-    href: "/dashboard/seo-settings",
-    label: "SEO Settings",
-    icon: <AiOutlineSetting className="size-6" />,
   },
 
   // Site Settings

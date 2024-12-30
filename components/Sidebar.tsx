@@ -17,9 +17,9 @@ const Sidebar: React.FC = () => {
 
   return (
     <aside
-      className={`flex flex-col shrink-0 h-full ${
+      className={`flex flex-col shrink-0 ${
         isCollapsed ? "w-[72px]" : "w-72"
-      } transition-width duration-500 bg-slate-800 overflow-x-hidden`}
+      } transition-width duration-500 bg-slate-800 h-screen`}
     >
       {/* Toggle Button */}
       <div className="p-4 text-right">
@@ -36,7 +36,7 @@ const Sidebar: React.FC = () => {
       </div>
 
       {/* Navigation Menu */}
-      <nav className="p-4 grow overflow-y-auto overflow-x-hidden hide-scrollbar">
+      <nav className="p-4 grow overflow-y-auto">
         <ul className="space-y-3">
           {sidebarItems.map((item: SidebarItem) => (
             <Link

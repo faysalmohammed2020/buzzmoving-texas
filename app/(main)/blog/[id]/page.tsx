@@ -19,8 +19,8 @@ const BlogPost: React.FC = () => {
   return (
     <div className="mx-auto">
       <div className="bg-white rounded-lg shadow-md mb-10">
-        <div className="relative w-full h-[400px] bg-gray-200 flex items-center justify-center">
-          <h1 className="text-6xl md:text-5xl font-bold text-gray-700">
+        <div className="relative w-full bg-gray-200 flex items-center justify-center">
+          <h1 className="text-6xl py-4 md:text-5xl font-bold text-gray-700">
             {post.post_title}
           </h1>
         </div>
