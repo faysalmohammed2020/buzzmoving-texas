@@ -1,30 +1,48 @@
 "use client";
 
-import React, { useState, useRef } from "react";
+import React, { useState, useRef, useEffect } from "react";
 import Link from "next/link";
 import { ChevronDown, Menu, X } from "lucide-react";
 import { VscAccount } from "react-icons/vsc";
-import { postdata } from "@/app/data/postdata";
 import Image from "next/image";
+
+interface Blog {
+  id: number;
+  title: string;
+}
 
 const HeaderMenu: React.FC = () => {
   const [isMobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [hoveredMenu, setHoveredMenu] = useState<string | null>(null);
   const timeoutRef = useRef<NodeJS.Timeout | null>(null);
   const [isHovered, setIsHovered] = useState<boolean>(false);
+  const [blogs, setBlogs] = useState<Blog[]>([]); // State to store blogs
+  const [searchQuery, setSearchQuery] = useState<string>(""); // Search query state
 
-  const handleMouseEnter = (menuName: string) => {
-    if (timeoutRef.current) {
-      clearTimeout(timeoutRef.current);
-    }
-    setHoveredMenu(menuName);
-  };
+  useEffect(() => {
+    // Fetch blog data from the API
+    const fetchBlogs = async () => {
+      try {
+        const response = await fetch("/api/blogfetch");
+        if (!response.ok) {
+          throw new Error("Failed to fetch blog data");
+        }
+        const data = await response.json();
+        console.log("data", data);
+        setBlogs(data); // Update state with fetched blog data
+      } catch (error) {
+        console.error("Error fetching blogs:", error);
+      }
+    };
 
-  const [searchQuery, setSearchQuery] = useState<string>("");
+    fetchBlogs(); // Fetch data when the component mounts
+  }, []);
 
-  const filteredBlogs = postdata.filter((blog) =>
-    blog.post_title.toLowerCase().includes(searchQuery.toLowerCase())
+  const filteredBlogs = blogs.filter((blog) =>
+    blog.title?.toLowerCase().includes(searchQuery.toLowerCase())
   );
+
+  // Highlight the search term in blog titles
   const highlightSearchTerm = (text: string, query: string): string => {
     if (!query) return text;
     const regex = new RegExp(`(${query})`, "gi");
@@ -32,6 +50,13 @@ const HeaderMenu: React.FC = () => {
       regex,
       (match) => `<span style="color: blue;">${match}</span>`
     );
+  };
+
+  const handleMouseEnter = (menuName: string) => {
+    if (timeoutRef.current) {
+      clearTimeout(timeoutRef.current);
+    }
+    setHoveredMenu(menuName);
   };
 
   const handleMouseLeave = () => {
@@ -213,26 +238,25 @@ const HeaderMenu: React.FC = () => {
                           onChange={(e) => setSearchQuery(e.target.value)}
                           className="w-full px-2 py-1 pl-12 rounded-xl bg-white text-black placeholder-gray-600 focus:outline-none focus:ring-orange-500 shadow-sm border border-orange-600 transition-all duration-300"
                         />
-
                         <hr />
                       </div>
 
                       <ul className="space-y-3">
                         <div className="scrollbar mt-4 space-y-4 ">
                           {filteredBlogs.length > 0 ? (
-                            filteredBlogs.map((id) => (
+                            filteredBlogs.map((blog) => (
                               <li
-                                key={id.ID}
+                                key={blog.id}
                                 className="group p-2 rounded-xl hover:from-orange-500 hover:to-orange-900 transition-colors duration-300 ease-in-out shadow-md"
                               >
                                 <Link
-                                  href={`/blog/${id.ID}`}
+                                  href={`/blog/${blog.id}`}
                                   className="text-sm sm:text-base font-medium text-gray-800 hover:underline hover:text-orange-600"
                                 >
                                   <span
                                     dangerouslySetInnerHTML={{
                                       __html: highlightSearchTerm(
-                                        id.post_title,
+                                        blog.title,
                                         searchQuery
                                       ),
                                     }}
