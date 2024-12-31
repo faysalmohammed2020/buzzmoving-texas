@@ -1,21 +1,28 @@
 "use client";
 import React, { useState, useEffect } from "react";
-import { FiUploadCloud, FiTrash2 } from "react-icons/fi"; // Import icons
+import { FiUploadCloud, FiTrash2 } from "react-icons/fi";
 import RichTextEditor from "./RichTextEditor";
 
 interface BlogPostFormProps {
-  initialData?: any; // Data for editing a blog
-  onClose: () => void; // Callback to close the modal
+  initialData?: {
+    post_title: string;
+    post_content: string;
+  };
+  onClose: () => void;
+}
+
+interface FormData {
+  title: string;
+  content: string;
 }
 
 const BlogPostForm: React.FC<BlogPostFormProps> = ({
   initialData,
   onClose,
 }) => {
-  const [formData, setFormData] = useState({
+  const [formData, setFormData] = useState<FormData>({
     title: "",
     content: "",
-    image: null as File | null,
   });
 
   useEffect(() => {
@@ -23,7 +30,6 @@ const BlogPostForm: React.FC<BlogPostFormProps> = ({
       setFormData({
         title: initialData.post_title || "",
         content: initialData.post_content || "",
-        image: null, // Handle image differently if needed
       });
     }
   }, [initialData]);
@@ -32,28 +38,48 @@ const BlogPostForm: React.FC<BlogPostFormProps> = ({
     e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>
   ) => {
     const { name, value } = e.target;
-    setFormData({ ...formData, [name]: value });
-  };
-
-  const handleImageChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    if (e.target.files) {
-      setFormData({ ...formData, image: e.target.files[0] });
-    }
-  };
-
-  const handleRemoveImage = () => {
-    setFormData({ ...formData, image: null });
+    setFormData((prev) => ({ ...prev, [name]: value }));
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    console.log("Form submitted:", formData);
-    onClose(); // Close modal after submission
+
+    // Create a FormData instance
+    const formToSubmit = {
+      title: formData.title,
+      content: formData.content,
+    };
+
+    // Send data to API route
+    try {
+      const response = await fetch("/api/blogpost", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json", // Ensure correct header
+        },
+        body: JSON.stringify(formToSubmit), // Stringify the object
+      });
+
+      const result = await response.json();
+
+      if (response.ok) {
+        // Alert on successful submission
+        alert("Blog post saved successfully!");
+        console.log("Blog post saved:", result);
+        onClose(); // Close the form after submission
+      } else {
+        console.error("Error saving blog post:", result.error);
+        alert("Failed to save blog post. Please try again.");
+      }
+    } catch (error) {
+      console.error("Unexpected error:", error);
+      alert("An unexpected error occurred. Please try again.");
+    }
   };
 
   return (
-    <form onSubmit={handleSubmit}>
-      <div className="mb-6">
+    <form onSubmit={handleSubmit} className="p-6 space-y-6">
+      <div>
         <label htmlFor="title" className="block text-lg font-medium mb-2">
           Blog Title
         </label>
@@ -63,59 +89,14 @@ const BlogPostForm: React.FC<BlogPostFormProps> = ({
           name="title"
           value={formData.title}
           onChange={handleChange}
-          className="w-full px-4 py-3 border border-gray-300 rounded-xl"
+          className="w-full px-4 py-3 border border-gray-300 rounded-lg"
           placeholder="Enter blog title"
           required
         />
       </div>
 
-      <div className="mb-6">
-        <label htmlFor="image" className="block text-lg font-medium mb-2">
-          Upload Blog Image
-        </label>
-        <div className="border-2 border-dashed border-gray-300 rounded-xl p-6 bg-gray-50 hover:bg-gray-100 cursor-pointer text-center">
-          <label htmlFor="file-input" className="block">
-            <div className="flex flex-col items-center">
-              <FiUploadCloud className="text-blue-500 w-12 h-12 mb-4" />
-              <p className="text-gray-700">
-                Drag and Drop file here or{" "}
-                <span className="text-blue-500 font-semibold cursor-pointer">
-                  Choose file
-                </span>
-              </p>
-            </div>
-          </label>
-          <input
-            id="file-input"
-            type="file"
-            name="image"
-            accept="image/*"
-            onChange={handleImageChange}
-            className="hidden"
-          />
-        </div>
-        {formData.image && (
-          <div className="mt-4 flex items-center gap-4 px-4 py-2 rounded-lg">
-            <p className="text-gray-800 font-medium">
-              Selected file:{" "}
-              <span className="text-green-600">{formData.image.name}</span>
-            </p>
-            <button
-              type="button"
-              onClick={handleRemoveImage}
-              className="flex items-center text-red-600 rounded-lg font-bold"
-            >
-              <FiTrash2 className="size-5" />
-            </button>
-          </div>
-        )}
-      </div>
-
-      <div className="mb-4">
-        <label
-          htmlFor="post_content"
-          className="block text-lg font-medium mb-2"
-        >
+      <div>
+        <label htmlFor="content" className="block text-lg font-medium mb-2">
           Blog Content
         </label>
         <RichTextEditor
@@ -129,12 +110,10 @@ const BlogPostForm: React.FC<BlogPostFormProps> = ({
         />
       </div>
 
-     
-
       <div className="text-right">
         <button
           type="submit"
-          className="px-6 py-3 bg-blue-600 text-white rounded-xl font-semibold"
+          className="px-6 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
         >
           {initialData ? "Update Blog" : "Publish Blog"}
         </button>

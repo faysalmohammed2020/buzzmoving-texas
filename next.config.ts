@@ -8,11 +8,14 @@ import type { NextConfig } from "next";
 
 /** @type {import('next').NextConfig} */
 
+
+
 const nextConfig: NextConfig = {
   reactStrictMode: false,
   images: {
     domains: ["movingquotetexas.com", "via.placeholder.com"], // Add the external domain here
   },
+  
 };
 
 module.exports = nextConfig;
