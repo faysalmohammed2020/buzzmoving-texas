@@ -4,12 +4,12 @@ import prisma from "@/prisma/prisma";  // Ensure the correct import path
 export async function POST(req: Request) {
   try {
     // Ensure you're parsing the JSON body
-    const { title, content } = await req.json();
+    const { title, content, category, tags } = await req.json();
 
     console.log("Received data:", { title, content });
 
     // Basic validation
-    if (!title || !content) {
+    if (!title || !content || !category || !tags) {
       return new NextResponse("Title and content are required", { status: 400 });
     }
 
@@ -18,6 +18,8 @@ export async function POST(req: Request) {
       data: {
         title,
         content,
+        category,
+        tags
       },
     });
 

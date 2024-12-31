@@ -12,6 +12,8 @@ model blogPost {
   id      Int      @id @default(autoincrement())
   title   String
   content String
+  category String
+  tags String
   createdAt DateTime @default(now())
 }
 

@@ -1,14 +1,15 @@
 "use client";
 import React, { useState, useEffect } from "react";
 import BlogPostForm from "@/components/BlogPostForm";
-import { RiDeleteBin6Line } from "react-icons/ri";
-import { FaEdit } from "react-icons/fa";
 import PaginatedItems from "@/components/Pagination";
 
 interface Blog {
   id: number;
   post_title: string;
   post_content: string;
+  post_category: string;
+  post_tags: string;
+  createdAt: any;
 }
 
 const BlogManagement: React.FC = () => {
@@ -20,27 +21,26 @@ const BlogManagement: React.FC = () => {
   const [editBlogData, setEditBlogData] = useState<Blog | null>(null);
   const [searchQuery, setSearchQuery] = useState<string>("");
 
-  // Fetch data from Fake Store API
+  // Fetch Blog from Prisma.
   useEffect(() => {
     const fetchBlogs = async () => {
       setIsLoading(true);
       try {
-        const response = await fetch(
-          "https://movingquotetexas.com/wp-json/wp/v2/posts?per_page=100",
-          {
-            headers: {
-              "Content-Type": "application/json",
-            },
-          }
-        );
+        const response = await fetch("/api/blogfetch"); // API route to fetch blog posts from Prisma
         const data = await response.json();
+        console.log(data);
 
-        // Transform API data to match our blog structure
+        // Transform data to match the Blog interface
         const transformedData: Blog[] = data.map((item: any) => ({
           id: item.id,
-          post_title: item.title.rendered,
-          post_content: item.content.rendered,
+          post_title: item.title,
+          post_content: item.content,
+          post_category: item.category,
+          post_tags: item.tags,
+          createdAt: item.createdAt, // Add createdAt to each blog post
         }));
+
+        console.log("Fetched Data Blogs:", transformedData);
 
         setBlogs(transformedData);
       } catch (err) {

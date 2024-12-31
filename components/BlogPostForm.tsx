@@ -1,19 +1,22 @@
 "use client";
 import React, { useState, useEffect } from "react";
-import { FiUploadCloud, FiTrash2 } from "react-icons/fi";
 import RichTextEditor from "./RichTextEditor";
 
 interface BlogPostFormProps {
   initialData?: {
     post_title: string;
     post_content: string;
-  };
+    post_category?: string;
+    post_tags?: string;
+  } | null; // Allow null
   onClose: () => void;
 }
 
 interface FormData {
   title: string;
   content: string;
+  category: string;
+  tags: string;
 }
 
 const BlogPostForm: React.FC<BlogPostFormProps> = ({
@@ -23,6 +26,8 @@ const BlogPostForm: React.FC<BlogPostFormProps> = ({
   const [formData, setFormData] = useState<FormData>({
     title: "",
     content: "",
+    category: "",
+    tags: "",
   });
 
   useEffect(() => {
@@ -30,6 +35,8 @@ const BlogPostForm: React.FC<BlogPostFormProps> = ({
       setFormData({
         title: initialData.post_title || "",
         content: initialData.post_content || "",
+        category: initialData.post_category || "",
+        tags: initialData.post_tags || "",
       });
     }
   }, [initialData]);
@@ -44,35 +51,31 @@ const BlogPostForm: React.FC<BlogPostFormProps> = ({
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
 
-    // Create a FormData instance
     const formToSubmit = {
       title: formData.title,
       content: formData.content,
+      category: formData.category,
+      tags: formData.tags,
     };
 
-    // Send data to API route
     try {
       const response = await fetch("/api/blogpost", {
         method: "POST",
         headers: {
-          "Content-Type": "application/json", // Ensure correct header
+          "Content-Type": "application/json",
         },
-        body: JSON.stringify(formToSubmit), // Stringify the object
+        body: JSON.stringify(formToSubmit),
       });
 
       const result = await response.json();
 
       if (response.ok) {
-        // Alert on successful submission
         alert("Blog post saved successfully!");
-        console.log("Blog post saved:", result);
         onClose(); // Close the form after submission
       } else {
-        console.error("Error saving blog post:", result.error);
         alert("Failed to save blog post. Please try again.");
       }
     } catch (error) {
-      console.error("Unexpected error:", error);
       alert("An unexpected error occurred. Please try again.");
     }
   };
@@ -91,6 +94,38 @@ const BlogPostForm: React.FC<BlogPostFormProps> = ({
           onChange={handleChange}
           className="w-full px-4 py-3 border border-gray-300 rounded-lg"
           placeholder="Enter blog title"
+          required
+        />
+      </div>
+
+      <div>
+        <label htmlFor="category" className="block text-lg font-medium mb-2">
+          Category
+        </label>
+        <input
+          type="text"
+          id="category"
+          name="category"
+          value={formData.category}
+          onChange={handleChange}
+          className="w-full px-4 py-3 border border-gray-300 rounded-lg"
+          placeholder="Enter blog category"
+          required
+        />
+      </div>
+
+      <div>
+        <label htmlFor="tags" className="block text-lg font-medium mb-2">
+          Tags
+        </label>
+        <input
+          type="text"
+          id="tags"
+          name="tags"
+          value={formData.tags}
+          onChange={handleChange}
+          className="w-full px-4 py-3 border border-gray-300 rounded-lg"
+          placeholder="Enter tags separated by commas"
           required
         />
       </div>
