@@ -180,7 +180,7 @@ interface FormData {
   title: string;
   content: string;
   category: string;
-  tags: string;
+  tags?: string; // Made optional
 }
 
 const BlogPostForm: React.FC<BlogPostFormProps> = ({
@@ -220,15 +220,16 @@ const BlogPostForm: React.FC<BlogPostFormProps> = ({
 
     const formToSubmit = {
       id: formData.id,
-      title: formData.title,
-      content: formData.content,
+      post_title: formData.title, // Ensure correct field names
+      post_content: formData.content,
       category: formData.category,
-      tags: formData.tags,
+      tags: formData.tags || "",
     };
 
     try {
-      const response = await fetch("/api/blogpost", {
-        method: formData.id ? "PUT" : "POST", // Use PUT for edits
+      const response = await fetch("/api/blogfetch", {
+        // Ensure correct API path
+        method: formData.id ? "PUT" : "POST",
         headers: {
           "Content-Type": "application/json",
         },
@@ -287,7 +288,7 @@ const BlogPostForm: React.FC<BlogPostFormProps> = ({
 
       <div>
         <label htmlFor="tags" className="block text-lg font-medium mb-2">
-          Tags
+          Tags (Optional)
         </label>
         <input
           type="text"
@@ -297,7 +298,6 @@ const BlogPostForm: React.FC<BlogPostFormProps> = ({
           onChange={handleChange}
           className="w-full px-4 py-3 border border-gray-300 rounded-lg"
           placeholder="Enter tags separated by commas"
-          required
         />
       </div>
 

@@ -4,15 +4,19 @@ import React, { useState } from "react";
 import ReactPaginate from "react-paginate";
 import BlogCard from "./BlogCard";
 
-export type Blog = {
+interface Blog {
   id: number;
+
   post_title: string;
+
   post_content: string;
-  category: string;
-  tags: string[];
-  post_status?: string;
-  createdAt: Date;
-};
+
+  post_category: string;
+
+  post_tags: string;
+
+  createdAt: any;
+}
 
 type PaginatedItemsProps = {
   blogs: Blog[];

@@ -6,7 +6,7 @@ import PaginatedItems from "@/components/Pagination";
 interface Blog {
   id: number;
   post_title: string;
-  post_content: JSON;
+  post_content: string; // Ensure post_content is a string
   post_category: string;
   post_tags: string;
   createdAt: any;
@@ -16,12 +16,10 @@ const BlogManagement: React.FC = () => {
   const [blogs, setBlogs] = useState<Blog[]>([]);
   const [isLoading, setIsLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
-
   const [isFormVisible, setIsFormVisible] = useState<boolean>(false);
   const [editBlogData, setEditBlogData] = useState<Blog | null>(null);
   const [searchQuery, setSearchQuery] = useState<string>("");
 
-  // Fetch Blog from Prisma.
   useEffect(() => {
     const fetchBlogs = async () => {
       setIsLoading(true);
@@ -29,18 +27,21 @@ const BlogManagement: React.FC = () => {
         const response = await fetch("/api/blogfetch");
         const data = await response.json();
 
-        console.log("Raw API Response:", data); // ✅ Debug API response
+        console.log("Raw API Response:", data);
 
         const transformedData: Blog[] = data.map((item: any) => ({
           id: item.id,
           post_title: item.post_title,
-          post_content: item.post_content,
+          post_content:
+            typeof item.post_content === "object" && item.post_content.text
+              ? item.post_content.text
+              : String(item.post_content), // Extract text content only
           post_category: item.category,
           post_tags: item.tags,
           createdAt: item.createdAt,
         }));
 
-        console.log("Transformed Data:", transformedData); // ✅ Debug transformed data
+        console.log("Transformed Data:", transformedData);
 
         setBlogs(transformedData);
       } catch (err) {
@@ -73,7 +74,7 @@ const BlogManagement: React.FC = () => {
   const handleDeleteClick = async (id: number) => {
     if (window.confirm("Are you sure you want to delete this blog post?")) {
       try {
-        const response = await fetch("/api/blogpost", {
+        const response = await fetch("/api/blogfetch", {
           method: "DELETE",
           headers: {
             "Content-Type": "application/json",
@@ -144,7 +145,6 @@ const BlogManagement: React.FC = () => {
           </h2>
         </div>
 
-        {/* Modal */}
         {isFormVisible && (
           <div
             className="fixed inset-0 bg-gray-500 bg-opacity-70 flex justify-center items-center z-50"
@@ -170,13 +170,12 @@ const BlogManagement: React.FC = () => {
               <BlogPostForm
                 initialData={editBlogData}
                 onClose={handleCloseModal}
-                onUpdate={handleUpdateBlog} // Update state on successful edit
+                onUpdate={handleUpdateBlog}
               />
             </div>
           </div>
         )}
 
-        {/* Paginated Blogs */}
         <PaginatedItems
           blogs={filteredPosts}
           itemsPerPage={8}

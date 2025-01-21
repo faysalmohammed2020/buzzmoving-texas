@@ -8,7 +8,7 @@ import Image from "next/image";
 
 interface Blog {
   id: number;
-  title: string;
+  post_title: string;
 }
 
 const HeaderMenu: React.FC = () => {
@@ -39,7 +39,7 @@ const HeaderMenu: React.FC = () => {
   }, []);
 
   const filteredBlogs = blogs.filter((blog) =>
-    blog.title?.toLowerCase().includes(searchQuery.toLowerCase())
+    blog.post_title?.toLowerCase().includes(searchQuery.toLowerCase())
   );
 
   // Highlight the search term in blog titles
@@ -256,7 +256,7 @@ const HeaderMenu: React.FC = () => {
                                   <span
                                     dangerouslySetInnerHTML={{
                                       __html: highlightSearchTerm(
-                                        blog.title,
+                                        blog.post_title,
                                         searchQuery
                                       ),
                                     }}

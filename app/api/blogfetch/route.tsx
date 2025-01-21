@@ -4,19 +4,45 @@ import prisma from "@/prisma/prisma";
 // ✅ Create New Blog Post
 export async function POST(req: Request) {
   try {
-    const { post_title, post_content, category, tags } = await req.json();
+    const body = await req.json();
+    console.log("Received POST request with data:", body); // Debugging log
 
-    if (!post_title || !post_content || !category || !tags) {
+    const {
+      post_title,
+      post_content,
+      category,
+      tags,
+      post_author,
+      post_status,
+      post_excerpt,
+    } = body;
+
+    if (!post_title || !post_content || !category) {
       return NextResponse.json(
-        { error: "All fields are required" },
+        { error: "Title, content, and category are required" },
         { status: 400 }
       );
     }
 
     const newBlogPost = await prisma.blogPost.create({
-      data: { post_name: post_title, post_title, post_content, category, tags },
+      data: {
+        post_name: post_title,
+        post_title,
+        post_content,
+        category,
+        tags: tags || "", // Optional tags defaulting to an empty string
+        post_author,
+        post_status,
+        post_excerpt,
+        post_date: new Date(),
+        post_date_gmt: new Date(),
+        post_modified: new Date(),
+        post_modified_gmt: new Date(),
+        createdAt: new Date(),
+      },
     });
 
+    console.log("Blog post created successfully:", newBlogPost); // Debugging log
     return NextResponse.json(newBlogPost, { status: 201 });
   } catch (error) {
     console.error("❌ Error creating blog post:", error);
@@ -32,16 +58,21 @@ export async function PUT(req: Request) {
   try {
     const { id, post_title, post_content, category, tags } = await req.json();
 
-    if (!id || !post_title || !post_content || !category || !tags) {
+    if (!id || !post_title || !post_content || !category) {
       return NextResponse.json(
-        { error: "All fields are required" },
+        { error: "ID, Title, Content, and Category are required" },
         { status: 400 }
       );
     }
 
     const updatedBlogPost = await prisma.blogPost.update({
       where: { id },
-      data: { post_title, post_content, category, tags },
+      data: {
+        post_title,
+        post_content,
+        category,
+        tags: tags || "",
+      },
     });
 
     return NextResponse.json(updatedBlogPost, { status: 200 });

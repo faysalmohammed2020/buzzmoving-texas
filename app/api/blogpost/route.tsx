@@ -114,43 +114,28 @@ import prisma from "@/prisma/prisma"; // Ensure correct import path
 // ✅ Create New Blog Post
 export async function POST(req: Request) {
   try {
-    const {
-      post_title,
-      post_content,
-      category,
-      tags,
-      post_status,
-      post_author,
-    } = await req.json();
+    const { post_title, post_content, category, tags } = await req.json();
 
-    // Validate required fields
     if (!post_title || !post_content || !category) {
       return NextResponse.json(
-        { error: "Title, content, and category are required." },
+        { error: "Title, content, and category are required" },
         { status: 400 }
       );
     }
 
-    // Ensure tags is an array
-    const processedTags = Array.isArray(tags)
-      ? tags
-      : tags?.split(",").map((tag: string) => tag.trim()) || [];
-
     const newBlogPost = await prisma.blogPost.create({
       data: {
-        post_name: post_title.toLowerCase().replace(/\s+/g, "-"), // Slug generation
+        post_name: post_title,
         post_title,
         post_content,
         category,
-        tags: processedTags,
-        post_status: post_status || "draft",
-        post_author: post_author || null,
+        tags: tags || "", // Ensure tags is optional and defaults to an empty string
       },
     });
 
     return NextResponse.json(newBlogPost, { status: 201 });
   } catch (error) {
-    console.error("Error creating blog post:", error);
+    console.error("❌ Error creating blog post:", error);
     return NextResponse.json(
       { error: "Failed to create blog post" },
       { status: 500 }
