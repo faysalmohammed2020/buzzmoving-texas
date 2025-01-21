@@ -280,9 +280,11 @@ const HeaderMenu: React.FC = () => {
         </ul>
 
         <div className="hidden md:flex items-center space-x-4">
-          <button className="px-2 py-1 rounded-full border font-semibold">
-            Sign Up
-          </button>
+          <Link href="/signin">
+            <button className="px-2 py-1 rounded-full border font-semibold">
+              Sign In
+            </button>
+          </Link>
           <button className="p-2 rounded-full">
             <VscAccount className="size-6" />
           </button>

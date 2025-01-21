@@ -10,7 +10,7 @@ const HomePage = () => {
   return (
     <>
       <div className="relative">
-        <div className="fixed top-[15%] right-[2.60%] z-30">
+        <div className="fixed top-[17.20%] right-[2.52%] z-30">
           <MovingCostCalculator />
         </div>
 

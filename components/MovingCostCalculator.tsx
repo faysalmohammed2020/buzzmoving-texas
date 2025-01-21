@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import DatePicker from "react-datepicker";
 import "react-datepicker/dist/react-datepicker.css";
 import { statedata } from "@/app/data/statedata";
@@ -15,11 +15,7 @@ const MovingCostCalculator: React.FC = () => {
   const [movingDate, setMovingDate] = useState<Date | null>(null);
   const [acceptedTerms, setAcceptedTerms] = useState<boolean>(false);
   const [errors, setErrors] = useState<Record<string, string>>({});
-  const [showFromDropdown, setShowFromDropdown] = useState<boolean>(false);
-  const [showToDropdown, setShowToDropdown] = useState<boolean>(false);
-  const [showNameDropdown, setShowNameDropdown] = useState<boolean>(false);
-  const [showEmailDropdown, setShowEmailDropdown] = useState<boolean>(false);
-  const [isCardOpen, setIsCardOpen] = useState<boolean>(false);
+  const [isCardOpen, setIsCardOpen] = useState<boolean>(true); // ✅ Always Open
 
   const handleCalculate = () => {
     const newErrors: Record<string, string> = {};
@@ -40,71 +36,13 @@ const MovingCostCalculator: React.FC = () => {
     }
   };
 
-  const handleDropdownSelect = (
-    setField: React.Dispatch<React.SetStateAction<string>>,
-    state: { name: string; abbreviation: string; country: string }
-  ) => {
-    const formattedValue = `${state.name}, ${state.abbreviation}, ${state.country}`;
-    setField(formattedValue);
-    setShowFromDropdown(false);
-    setShowToDropdown(false);
-    setShowNameDropdown(false);
-    setShowEmailDropdown(false);
-  };
-
-  const renderDropdown = (
-    showDropdown: boolean,
-    filterText: string,
-    setField: React.Dispatch<React.SetStateAction<string>>
-  ) => {
-    if (!showDropdown || filterText.trim() === "") return null;
-
-    const filteredStates = Object.entries(statedata).filter(([, state]) =>
-      state.name.toLowerCase().includes(filterText.toLowerCase())
-    );
-
-    if (filteredStates.length === 0) return null;
-
-    return (
-      <ul className="absolute z-10 bg-white text-black border border-gray-300 rounded-lg mt-1 max-h-60 w-full overflow-y-auto">
-        {filteredStates.map(([code, state]) => (
-          <li
-            key={code}
-            onClick={() => handleDropdownSelect(setField, state)}
-            className="px-4 py-2 hover:bg-amber-500 hover:text-white cursor-pointer"
-          >
-            {state.name}, {state.abbreviation}, {state.country}
-          </li>
-        ))}
-      </ul>
-    );
-  };
-
   return (
     <div>
-      {!isCardOpen && (
-        <button
-          onClick={() => setIsCardOpen(true)}
-          className="fixed top-[15%] right-0 bg-amber-600 text-white px-4 py-2 rounded-l-xl shadow-lg hover:bg-amber-700 flex items-center space-x-2"
-        >
-          <Image src="/image/mini-Logo.png" alt="Mini Logo" width={24} height={24} />
-
-          <div>
-            <span className="block text-sm font-bold">Calculate</span>
-            <span className="block text-sm">& Quote</span>
-          </div>
-        </button>
-      )}
+      {/* ✅ No Close Button & Always Open */}
       {isCardOpen && (
-        <div className="max-w-2xl bg-transparent hover:bg-white text-white hover:text-black p-6 border-2 border-[#E5A436] hover:border-none rounded-2xl shadow-lg">
-          <button
-            onClick={() => setIsCardOpen(false)}
-            className="absolute top-2 right-2 text-xl font-bold text-gray-500 hover:text-black"
-          >
-            &times;
-          </button>
+        <div className="max-w-3xl bg-[#F3F4F6] hover:bg-white text-gray-700 hover:text-black p-6 border-2 border-[#a58e67] hover:border-none rounded-2xl shadow-lg">
           <h2 className="text-2xl font-bold text-center mb-6">
-            Calculate Moving Cost
+            Calculate Moving Cost & Get Quote
           </h2>
           <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
             {/* Name Field */}
@@ -118,9 +56,8 @@ const MovingCostCalculator: React.FC = () => {
                 placeholder="Enter your name"
                 value={name}
                 onChange={(e) => setName(e.target.value)}
-                className="w-full p-2 text-lg text-black border border-amber-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-amber-600 placeholder-gray-400"
+                className="w-full p-2 text-lg text-black border border-slate-700 rounded-lg focus:outline-none focus:ring-2 focus:ring-amber-600 placeholder-gray-400"
               />
-              {renderDropdown(showNameDropdown, name, setName)}
               {errors.name && (
                 <p className="text-red-500 text-sm mt-1">{errors.name}</p>
               )}
@@ -137,9 +74,8 @@ const MovingCostCalculator: React.FC = () => {
                 placeholder="Enter your email"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
-                className="w-full p-2 text-lg text-black border border-amber-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-amber-600 placeholder-gray-400"
+                className="w-full p-2 text-lg text-black border border-slate-700 rounded-lg focus:outline-none focus:ring-2 focus:ring-amber-600 placeholder-gray-400"
               />
-              {renderDropdown(showEmailDropdown, email, setEmail)}
               {errors.email && (
                 <p className="text-red-500 text-sm mt-1">{errors.email}</p>
               )}
@@ -153,18 +89,14 @@ const MovingCostCalculator: React.FC = () => {
               >
                 Where are you moving from?
               </label>
-              <div className="relative">
-                <input
-                  type="text"
-                  id="moving-from"
-                  placeholder="Enter state"
-                  value={movingFrom}
-                  onChange={(e) => setMovingFrom(e.target.value)}
-                  onClick={() => setShowFromDropdown(true)}
-                  className="w-full p-2 text-lg text-black border border-amber-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-amber-600 placeholder-gray-400"
-                />
-                {renderDropdown(showFromDropdown, movingFrom, setMovingFrom)}
-              </div>
+              <input
+                type="text"
+                id="moving-from"
+                placeholder="Enter state"
+                value={movingFrom}
+                onChange={(e) => setMovingFrom(e.target.value)}
+                className="w-full p-2 text-lg text-black border border-slate-700 rounded-lg focus:outline-none focus:ring-2 focus:ring-amber-600 placeholder-gray-400"
+              />
             </div>
 
             {/* Moving To */}
@@ -172,18 +104,14 @@ const MovingCostCalculator: React.FC = () => {
               <label htmlFor="moving-to" className="block text-lg font-medium">
                 Where are you moving to?
               </label>
-              <div className="relative">
-                <input
-                  type="text"
-                  id="moving-to"
-                  placeholder="Enter state"
-                  value={movingTo}
-                  onChange={(e) => setMovingTo(e.target.value)}
-                  onClick={() => setShowToDropdown(true)}
-                  className="w-full p-2 text-lg text-black border border-amber-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-amber-600 placeholder-gray-400"
-                />
-                {renderDropdown(showToDropdown, movingTo, setMovingTo)}
-              </div>
+              <input
+                type="text"
+                id="moving-to"
+                placeholder="Enter state"
+                value={movingTo}
+                onChange={(e) => setMovingTo(e.target.value)}
+                className="w-full p-2 text-lg text-black border border-slate-700 rounded-lg focus:outline-none focus:ring-2 focus:ring-amber-600 placeholder-gray-400"
+              />
             </div>
 
             {/* Moving Type */}
@@ -198,7 +126,7 @@ const MovingCostCalculator: React.FC = () => {
                 id="moving-type"
                 value={movingType}
                 onChange={(e) => setMovingType(e.target.value)}
-                className="w-full p-2 text-lg text-gray-800 border border-amber-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-amber-600 placeholder-gray-400"
+                className="w-full p-2 text-lg text-gray-800 border border-slate-700 rounded-lg focus:outline-none focus:ring-2 focus:ring-amber-600 placeholder-gray-400"
               >
                 <option value="" disabled>
                   Select Moving Size
@@ -231,7 +159,7 @@ const MovingCostCalculator: React.FC = () => {
                 selected={movingDate}
                 onChange={(date: Date | null) => setMovingDate(date)}
                 placeholderText="Pick your moving date"
-                className="w-full p-2 text-lg text-black border border-amber-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-amber-600 placeholder-gray-400"
+                className="w-full p-2 text-lg text-black border border-slate-700 rounded-lg focus:outline-none focus:ring-2 focus:ring-amber-600 placeholder-gray-400"
                 minDate={new Date()}
               />
             </div>
