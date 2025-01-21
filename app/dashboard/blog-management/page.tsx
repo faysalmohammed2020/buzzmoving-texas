@@ -3,13 +3,13 @@ import React, { useState, useEffect } from "react";
 import BlogPostForm from "@/components/BlogPostForm";
 import PaginatedItems from "@/components/Pagination";
 
-interface Blog {
+export interface Blog {
   id: number;
   post_title: string;
   post_content: string;
-  post_category: string;
-  post_tags: string;
-  createdAt: any;
+  category: string;
+  tags: string;
+  createdAt: string;
 }
 
 const BlogManagement: React.FC = () => {
@@ -21,72 +21,84 @@ const BlogManagement: React.FC = () => {
   const [editBlogData, setEditBlogData] = useState<Blog | null>(null);
   const [searchQuery, setSearchQuery] = useState<string>("");
 
-  // Fetch Blog from Prisma.
+  /** ✅ Fetch Blog from API **/
   useEffect(() => {
-    const fetchBlogs = async () => {
-      setIsLoading(true);
-      try {
-        const response = await fetch("/api/blogfetch"); // API route to fetch blog posts from Prisma
-        const data = await response.json();
-        console.log(data);
-
-        // Transform data to match the Blog interface
-        const transformedData: Blog[] = data.map((item: any) => ({
-          id: item.id,
-          post_title: item.title,
-          post_content: item.content,
-          post_category: item.category,
-          post_tags: item.tags,
-          createdAt: item.createdAt, // Add createdAt to each blog post
-        }));
-
-        console.log("Fetched Data Blogs:", transformedData);
-
-        setBlogs(transformedData);
-      } catch (err) {
-        setError("Failed to fetch blogs. Please try again later.");
-      } finally {
-        setIsLoading(false);
-      }
-    };
-
     fetchBlogs();
   }, []);
 
-  const filteredPosts = blogs.filter((post) =>
-    post.post_title
-      .toLowerCase()
-      .trim()
-      .includes(searchQuery.toLowerCase().trim())
-  );
+  const fetchBlogs = async () => {
+    setIsLoading(true);
+    try {
+      const response = await fetch("/api/blogfetch");
+      const data = await response.json();
 
+      const transformedData: Blog[] = data.map((item: any) => ({
+        id: item.id,
+        post_title: item.post_title,
+        post_content: item.post_content,
+        category: item.category,
+        tags: item.tags,
+        createdAt: item.createdAt,
+      }));
+
+      setBlogs(transformedData);
+    } catch (err) {
+      setError("Failed to fetch blogs. Please try again later.");
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  /** ✅ Add or Edit Blog **/
+  const handleSaveBlog = async (blog: Partial<Blog>) => {
+    try {
+      const response = await fetch("/api/blogpost", {
+        method: blog.id ? "PUT" : "POST", // ✅ Use PUT if updating, POST if creating
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(blog),
+      });
+
+      if (!response.ok) throw new Error("Failed to save blog");
+
+      await fetchBlogs(); // ✅ Refresh blog list after save
+      setIsFormVisible(false);
+      setEditBlogData(null);
+    } catch (error) {
+      alert("Error saving blog");
+    }
+  };
+
+  /** ✅ Delete Blog **/
+  const handleDeleteClick = async (id: number) => {
+    if (window.confirm("Are you sure you want to delete this blog post?")) {
+      try {
+        const response = await fetch(`/api/blog/${id}`, { method: "DELETE" });
+
+        if (!response.ok) throw new Error("Failed to delete blog");
+
+        await fetchBlogs(); // Refresh after deletion
+      } catch (error) {
+        alert("Error deleting blog");
+      }
+    }
+  };
+
+  /** ✅ Open New Blog Form **/
   const handleCreateNewClick = () => {
     setEditBlogData(null);
     setIsFormVisible(true);
   };
 
+  /** ✅ Open Edit Blog Form **/
   const handleEditClick = (blog: Blog) => {
     setEditBlogData(blog);
     setIsFormVisible(true);
   };
 
-  const handleDeleteClick = (id: number) => {
-    if (window.confirm("Are you sure you want to delete this blog post?")) {
-      setBlogs((prevBlogs) => prevBlogs.filter((blog) => blog.id !== id));
-    }
-  };
-
-  const handleCloseModal = () => {
-    setIsFormVisible(false);
-  };
-
-  if (isLoading) {
-    return <p className="text-center text-gray-600">Loading blogs...</p>;
-  }
-
-  if (error) {
-    return <p className="text-center text-red-500">{error}</p>;
-  }
+  /** ✅ Filter Blogs Based on Search Query **/
+  const filteredPosts = blogs.filter((post) =>
+    post.post_title.toLowerCase().includes(searchQuery.toLowerCase().trim())
+  );
 
   return (
     <div className="p-6 bg-gray-100 min-h-screen font-sans">
@@ -98,7 +110,7 @@ const BlogManagement: React.FC = () => {
             placeholder="Search"
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
-            className="w-auto border border-slate-500 p-2 mr-4 rounded"
+            className="border border-slate-500 p-2 rounded"
           />
           <button
             onClick={handleCreateNewClick}
@@ -111,55 +123,50 @@ const BlogManagement: React.FC = () => {
 
       <hr />
 
-      <section className="mb-6 overflow-y-auto rounded-xl p-2">
-        <div className="flex justify-between py-4">
-          <h2 className="text-2xl font-bold">
-            Our Blogs:
-            <span className="pl-1 text-cyan-600 font-bold">
-              {filteredPosts.length}
-            </span>
-          </h2>
-        </div>
-
-        {/* Modal */}
-        {isFormVisible && (
-          <div
-            className="fixed inset-0 bg-gray-500 bg-opacity-70 flex justify-center items-center z-50"
-            role="dialog"
-            aria-modal="true"
-            onClick={handleCloseModal}
-          >
-            <div
-              className="bg-white rounded-xl p-8 w-11/12 max-w-4xl shadow-lg overflow-y-auto max-h-[90vh]"
-              onClick={(e) => e.stopPropagation()}
-            >
-              <div className="flex justify-between mb-2">
-                <h2 className="text-2xl font-bold">
-                  {editBlogData ? "Edit Blog" : "Create New Blog"}
-                </h2>
-                <button
-                  onClick={handleCloseModal}
-                  className="text-gray-500 font-bold text-xl"
-                >
-                  &times;
-                </button>
-              </div>
-              <BlogPostForm
-                initialData={editBlogData}
-                onClose={handleCloseModal}
-              />
-            </div>
-          </div>
-        )}
-
-        {/* Paginated Blogs */}
+      {isLoading ? (
+        <p className="text-center text-gray-600">Loading blogs...</p>
+      ) : error ? (
+        <p className="text-center text-red-500">{error}</p>
+      ) : (
         <PaginatedItems
           blogs={filteredPosts}
           itemsPerPage={8}
           onEdit={handleEditClick}
           onDelete={handleDeleteClick}
         />
-      </section>
+      )}
+
+      {/* Modal for Blog Form */}
+      {isFormVisible && (
+        <div
+          className="fixed inset-0 bg-gray-500 bg-opacity-70 flex justify-center items-center z-50"
+          role="dialog"
+          aria-modal="true"
+          onClick={() => setIsFormVisible(false)}
+        >
+          <div
+            className="bg-white rounded-xl p-8 w-11/12 max-w-4xl shadow-lg overflow-y-auto max-h-[90vh]"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex justify-between mb-2">
+              <h2 className="text-2xl font-bold">
+                {editBlogData ? "Edit Blog" : "Create New Blog"}
+              </h2>
+              <button
+                onClick={() => setIsFormVisible(false)}
+                className="text-gray-500 font-bold text-xl"
+              >
+                &times;
+              </button>
+            </div>
+            <BlogPostForm
+              initialData={editBlogData}
+              onClose={() => setIsFormVisible(false)}
+              onSave={handleSaveBlog}
+            />
+          </div>
+        </div>
+      )}
     </div>
   );
 };
