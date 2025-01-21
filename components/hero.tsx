@@ -1,5 +1,4 @@
 import React from "react";
-import MovingCalculator from "./CostCalculator";
 
 const HeroSection: React.FC = () => {
   return (
@@ -33,9 +32,9 @@ const HeroSection: React.FC = () => {
           </div>
         </div>
 
-        <div className="bg-transparent shadow-lg">
+        {/* <div className="bg-transparent shadow-lg">
           <MovingCalculator />
-        </div>
+        </div> */}
       </div>
     </section>
   );
