@@ -3,13 +3,13 @@ import React, { useState, useEffect } from "react";
 import BlogPostForm from "@/components/BlogPostForm";
 import PaginatedItems from "@/components/Pagination";
 
-interface Blog {
+export interface Blog {
   id: number;
   post_title: string;
   post_content: string;
-  post_category: string;
-  post_tags: string;
-  createdAt: any;
+  category: string;
+  tags: string;
+  createdAt: string;
 }
 
 const BlogManagement: React.FC = () => {
@@ -21,8 +21,9 @@ const BlogManagement: React.FC = () => {
   const [editBlogData, setEditBlogData] = useState<Blog | null>(null);
   const [searchQuery, setSearchQuery] = useState<string>("");
 
-  // Fetch Blog from Prisma.
+  /** ✅ Fetch Blog from API **/
   useEffect(() => {
+<<<<<<< HEAD
     const fetchBlogs = async () => {
       setIsLoading(true);
       try {
@@ -41,14 +42,33 @@ const BlogManagement: React.FC = () => {
         }));
 
         console.log("Transformed Data:", transformedData); // ✅ Debug transformed data
+=======
+    fetchBlogs();
+  }, []);
 
-        setBlogs(transformedData);
-      } catch (err) {
-        setError("Failed to fetch blogs. Please try again later.");
-      } finally {
-        setIsLoading(false);
-      }
-    };
+  const fetchBlogs = async () => {
+    setIsLoading(true);
+    try {
+      const response = await fetch("/api/blogfetch");
+      const data = await response.json();
+
+      const transformedData: Blog[] = data.map((item: any) => ({
+        id: item.id,
+        post_title: item.post_title,
+        post_content: item.post_content,
+        category: item.category,
+        tags: item.tags,
+        createdAt: item.createdAt,
+      }));
+>>>>>>> 0fed351b59033d66660dc26f8e3a3ca11cbc8ba8
+
+      setBlogs(transformedData);
+    } catch (err) {
+      setError("Failed to fetch blogs. Please try again later.");
+    } finally {
+      setIsLoading(false);
+    }
+  };
 
     fetchBlogs();
   }, []);
@@ -65,6 +85,7 @@ const BlogManagement: React.FC = () => {
     setIsFormVisible(true);
   };
 
+  /** ✅ Open Edit Blog Form **/
   const handleEditClick = (blog: Blog) => {
     setEditBlogData(blog);
     setIsFormVisible(true);
@@ -121,7 +142,7 @@ const BlogManagement: React.FC = () => {
             placeholder="Search"
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
-            className="w-auto border border-slate-500 p-2 mr-4 rounded"
+            className="border border-slate-500 p-2 rounded"
           />
           <button
             onClick={handleCreateNewClick}
