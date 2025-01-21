@@ -55,7 +55,7 @@ const BlogManagement: React.FC = () => {
 
   const filteredPosts = blogs.filter((post) =>
     post.post_title
-      .toLowerCase()
+      ?.toLowerCase()
       .trim()
       .includes(searchQuery.toLowerCase().trim())
   );
@@ -70,9 +70,26 @@ const BlogManagement: React.FC = () => {
     setIsFormVisible(true);
   };
 
-  const handleDeleteClick = (id: number) => {
+  const handleDeleteClick = async (id: number) => {
     if (window.confirm("Are you sure you want to delete this blog post?")) {
-      setBlogs((prevBlogs) => prevBlogs.filter((blog) => blog.id !== id));
+      try {
+        const response = await fetch("/api/blogpost", {
+          method: "DELETE",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({ id }),
+        });
+
+        if (response.ok) {
+          alert("Blog post deleted successfully!");
+          setBlogs((prevBlogs) => prevBlogs.filter((blog) => blog.id !== id));
+        } else {
+          alert("Failed to delete blog post. Please try again.");
+        }
+      } catch (error) {
+        alert("An unexpected error occurred. Please try again.");
+      }
     }
   };
 
@@ -87,6 +104,12 @@ const BlogManagement: React.FC = () => {
   if (error) {
     return <p className="text-center text-red-500">{error}</p>;
   }
+
+  const handleUpdateBlog = (updatedBlog: Blog) => {
+    setBlogs((prevBlogs) =>
+      prevBlogs.map((blog) => (blog.id === updatedBlog.id ? updatedBlog : blog))
+    );
+  };
 
   return (
     <div className="p-6 bg-gray-100 min-h-screen font-sans">
@@ -147,6 +170,7 @@ const BlogManagement: React.FC = () => {
               <BlogPostForm
                 initialData={editBlogData}
                 onClose={handleCloseModal}
+                onUpdate={handleUpdateBlog} // Update state on successful edit
               />
             </div>
           </div>
