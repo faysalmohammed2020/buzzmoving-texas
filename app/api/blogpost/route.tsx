@@ -36,6 +36,7 @@
 import { NextResponse } from "next/server";
 import prisma from "@/prisma/prisma"; // Ensure correct import path
 
+// ✅ CREATE A NEW BLOG POST
 export async function POST(req: Request) {
   try {
     const { title, content, category, tags } = await req.json();
