@@ -26,21 +26,21 @@ const BlogManagement: React.FC = () => {
     const fetchBlogs = async () => {
       setIsLoading(true);
       try {
-        const response = await fetch("/api/blogfetch"); // API route to fetch blog posts from Prisma
+        const response = await fetch("/api/blogfetch");
         const data = await response.json();
-        console.log(data);
 
-        // Transform data to match the Blog interface
+        console.log("Raw API Response:", data); // ✅ Debug API response
+
         const transformedData: Blog[] = data.map((item: any) => ({
           id: item.id,
-          post_title: item.title,
-          post_content: item.content,
+          post_title: item.post_title,
+          post_content: item.post_content,
           post_category: item.category,
           post_tags: item.tags,
-          createdAt: item.createdAt, // Add createdAt to each blog post
+          createdAt: item.createdAt,
         }));
 
-        console.log("Fetched Data Blogs:", transformedData);
+        console.log("Transformed Data:", transformedData); // ✅ Debug transformed data
 
         setBlogs(transformedData);
       } catch (err) {
