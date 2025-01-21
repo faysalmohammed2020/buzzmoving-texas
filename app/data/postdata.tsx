@@ -1,6 +1,34 @@
 import { placeData } from "./placeData";
 
-export const postdata = [
+export type PostData = {
+  ID: string;
+  post_author: string;
+  name?: string;
+  category: { id: number; name: string } | string;
+  post_date: string;
+  post_date_gmt: string;
+  post_content: string;
+  post_title: string;
+  post_excerpt?: string;
+  post_status: string;
+  comment_status: string;
+  ping_status: string;
+  post_password?: string;
+  post_name: string;
+  to_ping?: string;
+  pinged?: string;
+  post_modified: string;
+  post_modified_gmt: string;
+  post_content_filtered?: string;
+  post_parent: string;
+  guid: string;
+  menu_order: string;
+  post_type: string;
+  post_mime_type?: string;
+  comment_count: string;
+};
+
+export const postdata: PostData[] = [
   {
     ID: "117",
     post_author: "1",
