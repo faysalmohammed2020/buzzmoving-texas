@@ -68,13 +68,15 @@ const HeaderMenu: React.FC = () => {
   return (
     <header className="bg-[#191C27] shadow-md border-b border-gray-300 sticky top-0 left-0 w-full z-50">
       <nav className="container mx-auto flex items-center justify-between py-4 px-6 text-white">
-        <div className="flex items-center space-x-4">
-          <Image
-            src="/image/logo.png"
-            alt="Company Logo"
-            width={386}
-            height={59}
-          />
+        <div>
+          <Link href="/">
+            <Image
+              src="/image/logo.png"
+              alt="Company Logo"
+              width={386}
+              height={59}
+            />
+          </Link>
         </div>
 
         <div className="md:hidden">
@@ -106,65 +108,48 @@ const HeaderMenu: React.FC = () => {
             </div>
 
             {hoveredMenu === "services" && (
-              <div className="absolute left-0 mt-5 w-96 bg-white text-black shadow-lg rounded-xl p-6">
-                <div className="flex">
-                  <div className="w-1/3">
-                    <Image
-                      src="/image/delevery2.jpg"
-                      alt="Best Services"
-                      height={100}
-                      width={100}
-                      className="rounded-md mb-4"
-                    />
-                    <h4 className="text-lg font-bold">Best Service</h4>
-                    <p className="text-sm text-gray-600">
-                      Explore our top-rated services tailored to meet your
-                      needs.
-                    </p>
-                  </div>
-
-                  <div className="w-2/3 gap-4 pl-6">
-                    <div>
-                      <div className="py-2">
-                        <h5 className="text-lg font-bold mb-2">Our Services</h5>
-                        <hr />
-                      </div>
-
-                      <ul className="space-y-1 text-md">
-                        <li>
-                          <Link
-                            href="/services/long-distance-moving"
-                            className="text-gray-700 hover:text-blue-500"
-                          >
-                            Long Distance Moving
-                          </Link>
-                        </li>
-                        <li>
-                          <Link
-                            href="/services/auto-transport"
-                            className="text-gray-700 hover:text-blue-500"
-                          >
-                            Auto Transport
-                          </Link>
-                        </li>
-                        <li>
-                          <Link
-                            href="/services/storage-solutions"
-                            className="text-gray-700 hover:text-blue-500"
-                          >
-                            Storage Solutions
-                          </Link>
-                        </li>
-                        <li>
-                          <Link
-                            href="/services/home-changes"
-                            className="text-gray-700 hover:text-blue-500"
-                          >
-                            Home Changes
-                          </Link>
-                        </li>
-                      </ul>
+              <div className="absolute left-0 mt-5 w-72 bg-white text-black shadow-lg rounded-xl p-6">
+                <div className="w-full gap-4 pl-2">
+                  <div>
+                    <div className="py-1">
+                      <h5 className="text-lg font-bold mb-2">Our Services</h5>
+                      <hr />
                     </div>
+
+                    <ul className="space-y-1 text-md">
+                      <li>
+                        <Link
+                          href="/services/long-distance-moving"
+                          className="text-gray-700 hover:text-blue-500"
+                        >
+                          Long Distance Moving
+                        </Link>
+                      </li>
+                      <li>
+                        <Link
+                          href="/services/auto-transport"
+                          className="text-gray-700 hover:text-blue-500"
+                        >
+                          Auto Transport
+                        </Link>
+                      </li>
+                      <li>
+                        <Link
+                          href="/services/storage-solutions"
+                          className="text-gray-700 hover:text-blue-500"
+                        >
+                          Storage Solutions
+                        </Link>
+                      </li>
+                      <li>
+                        <Link
+                          href="/services/home-changes"
+                          className="text-gray-700 hover:text-blue-500"
+                        >
+                          Home Changes
+                        </Link>
+                      </li>
+                    </ul>
                   </div>
                 </div>
               </div>
@@ -198,10 +183,10 @@ const HeaderMenu: React.FC = () => {
             onMouseEnter={() => handleMouseEnter("blogs")}
             onMouseLeave={handleMouseLeave}
           >
-            <div className="flex items-center cursor-pointer">
+            <Link href="/blog" className="flex items-center">
               <span>Blog</span>
               <ChevronDown className="ml-2 w-4 h-4 text-white" />
-            </div>
+            </Link>
 
             {hoveredMenu === "blogs" && (
               <div className="absolute -left-32 mt-5 w-[450px] bg-white text-black shadow-lg rounded-xl p-4">
