@@ -40,7 +40,7 @@ const MovingCostCalculator: React.FC = () => {
     <div>
       {/* ✅ No Close Button & Always Open */}
       {isCardOpen && (
-        <div className="max-w-3xl bg-[#F3F4F6] hover:bg-white text-gray-700 hover:text-black p-6 border-2 border-[#a58e67] hover:border-none rounded-2xl shadow-lg">
+        <div className="max-w-5xl bg-[#1E293B] text-white hover:bg-white hover:text-black p-6 border-2 border-[#a58e67] hover:border-none rounded-2xl shadow-lg">
           <h2 className="text-2xl font-bold text-center mb-6">
             Calculate Moving Cost & Get Quote
           </h2>
