@@ -1,3 +1,4 @@
+import MovingCalculator from "@/components/CostCalculator";
 import HomePage from "@/components/HomePage";
 
 const page = () => {

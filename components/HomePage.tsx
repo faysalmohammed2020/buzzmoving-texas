@@ -1,19 +1,55 @@
+
+"use client";
+
+import { useEffect, useState } from "react";
 import CustomerReviews from "@/components/CustomerReview";
 import EmailSubscription from "@/components/EmailSubmission";
 import HeroSection from "@/components/hero";
 import RelatedPost from "@/components/RelatedPost";
 import VideoReviews from "@/components/VideoReview";
 import Categories from "./Categories";
-import MovingCostCalculator from "./MovingCostCalculator";
+import MovingCalculator from "./CostCalculator";
 
 const HomePage = () => {
+  const [isScrolling, setIsScrolling] = useState(false);
+
+  useEffect(() => {
+    let scrollTimeout: NodeJS.Timeout;
+
+    const handleScroll = () => {
+      setIsScrolling(true);
+
+      // Clear timeout if user keeps scrolling
+      clearTimeout(scrollTimeout);
+
+      // Set timeout to reset the state after scrolling stops
+      scrollTimeout = setTimeout(() => {
+        setIsScrolling(false);
+      }, 500); // Adjust timeout duration as needed
+    };
+
+    window.addEventListener("scroll", handleScroll);
+
+    return () => {
+      window.removeEventListener("scroll", handleScroll);
+      clearTimeout(scrollTimeout);
+    };
+  }, []);
+
   return (
     <>
       <div className="relative">
-        <div className="fixed top-[17.20%] right-[2.52%] z-30">
-          <MovingCostCalculator />
+        {/* Moving Calculator Section */}
+        <div
+          className={`fixed top-[15%] right-[2.52%] z-30 w-[700px] h-[650px] transform transition-all duration-300 ${
+            isScrolling ? "scale-[0.4]" : "scale-[1]"
+          }`}
+          style={{ transformOrigin: "top right" }} // Adjust origin for zoom effect
+        >
+          <MovingCalculator />
         </div>
 
+        {/* Main Content */}
         <div className="overflow-y-auto">
           <HeroSection />
 
