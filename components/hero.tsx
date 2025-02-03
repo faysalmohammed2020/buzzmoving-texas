@@ -13,7 +13,7 @@ const HeroSection: React.FC = () => {
       ></video>
       <div className="relative z-10 flex flex-col lg:flex-row justify-between items-center lg:px-12 py-8 lg:py-16">
         {/* Left Content */}
-        <div className="mt-20">
+        <div className="mt-44">
           <h1 className="text-5xl xl:text-6xl font-bold leading-tight mb-4">
             Moving Quote Texas
           </h1>
