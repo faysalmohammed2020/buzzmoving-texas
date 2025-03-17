@@ -5,6 +5,8 @@ import Link from "next/link";
 import { ChevronDown, Menu, X } from "lucide-react";
 import { VscAccount } from "react-icons/vsc";
 import Image from "next/image";
+import { signOut, useSession } from "@/lib/auth-client";
+import { Button } from "./ui/button";
 
 interface Blog {
   id: number;
@@ -18,6 +20,7 @@ const HeaderMenu: React.FC = () => {
   const [isHovered, setIsHovered] = useState<boolean>(false);
   const [blogs, setBlogs] = useState<Blog[]>([]); // State to store blogs
   const [searchQuery, setSearchQuery] = useState<string>(""); // Search query state
+  const { data: session } = useSession();
 
   useEffect(() => {
     // Fetch blog data from the API
@@ -265,11 +268,20 @@ const HeaderMenu: React.FC = () => {
         </ul>
 
         <div className="hidden md:flex items-center space-x-4">
-          <Link href="/signin">
-            <button className="px-2 py-1 rounded-full border font-semibold">
-              Sign In
+        {session ? (
+            <button
+              onClick={() => signOut()}
+              className="bg-red-500 text-white px-4 py-2 rounded-lg hover:bg-red-600"
+            >
+              Logout
             </button>
-          </Link>
+          ) : (
+            <Link href="/sign-in">
+              <Button className="px-2 py-1 rounded-full border font-semibold">
+                Sign In
+              </Button>
+            </Link>
+          )}
           <button className="p-2 rounded-full">
             <VscAccount className="size-6" />
           </button>

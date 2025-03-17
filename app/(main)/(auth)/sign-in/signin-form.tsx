@@ -58,7 +58,7 @@ const SigninForm = () => {
         onSuccess: () => {
           console.log(session.data);
           toast.success("Login Successful");
-          router.push("/Dashboard");
+          router.push("/dashboard");
         },
         onError: (ctx) => {
           setFormError(ctx.error.message);
