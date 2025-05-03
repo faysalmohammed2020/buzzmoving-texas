@@ -285,7 +285,7 @@ const AdminDashboard: React.FC = () => {
         </div>
       </div>
       {/* Recent Blogs Section */}
-      <section className="mb-6">
+      <section className="mt-6 mb-6">
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           <div>
             <h2 className="text-2xl font-bold mb-4">Worldwide Visitors</h2>
