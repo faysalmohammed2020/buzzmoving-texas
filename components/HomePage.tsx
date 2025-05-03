@@ -8,7 +8,7 @@ import HeroSection from "@/components/hero";
 import RelatedPost from "@/components/RelatedPost";
 import VideoReviews from "@/components/VideoReview";
 import Categories from "./Categories";
-import MovingCalculator from "./CostCalculator";
+import MovingCalculator from "./MovingCostCalculator";
 
 const HomePage = () => {
   const [isScrolling, setIsScrolling] = useState(false);
@@ -46,7 +46,7 @@ const HomePage = () => {
           }`}
           style={{ transformOrigin: "top right" }} // Adjust origin for zoom effect
         >
-          <MovingCalculator />
+         <MovingCalculator/>
         </div>
 
         {/* Main Content */}

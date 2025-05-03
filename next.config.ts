@@ -1,21 +1,18 @@
 import type { NextConfig } from "next";
 
-// const nextConfig: NextConfig = {
-//   /* config options here */
-// };
-
-// export default nextConfig;
-
-/** @type {import('next').NextConfig} */
-
-
-
 const nextConfig: NextConfig = {
   reactStrictMode: false,
   images: {
-    domains: ["movingquotetexas.com", "via.placeholder.com"], // Add the external domain here
+    domains: ["movingquotetexas.com", "via.placeholder.com"],
   },
-  
+  async rewrites() {
+    return [
+      {
+        source: '/api/moving/:path*',
+        destination: 'https://movingrelogroup.org/:path*',
+      },
+    ];
+  },
 };
 
-module.exports = nextConfig;
+export default nextConfig;

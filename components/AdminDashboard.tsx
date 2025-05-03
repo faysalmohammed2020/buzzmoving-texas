@@ -1,7 +1,20 @@
 "use client";
 import React, { useState, useEffect } from "react";
 import VisitorMarquee from "./VisitorMarquee";
-
+import {
+  BarChart,
+  Bar,
+  XAxis,
+  YAxis,
+  Tooltip,
+  CartesianGrid,
+  ResponsiveContainer,
+  ComposedChart,
+  Legend,
+  Line,
+} from "recharts";
+import axios from "axios";
+import { FaComments, FaFileAlt } from "react-icons/fa";
 interface Blog {
   id: number;
   post_title: string;
@@ -15,7 +28,9 @@ const AdminDashboard: React.FC = () => {
   const [error, setError] = useState<string | null>(null);
   const [isEditModalVisible, setIsEditModalVisible] = useState<boolean>(false);
   const [editBlogData, setEditBlogData] = useState<Blog | null>(null);
-
+  const [stats, setStats] = useState({ dailyLeads: [], dailyResponses: [] });
+  const [totalLeads, setTotalLeads] = useState(0);
+  const [totalResponses, setTotalResponses] = useState(0);
   // Fetch blogs from the API
   useEffect(() => {
     const fetchBlogs = async () => {
@@ -48,6 +63,21 @@ const AdminDashboard: React.FC = () => {
     };
 
     fetchBlogs();
+  }, []);
+
+  useEffect(() => {
+    const fetchStats = async () => {
+      try {
+        const res = await fetch("/api/admin/leads/stats");
+        const data = await res.json();
+        setStats({ dailyLeads: data.dailyLeads, dailyResponses: data.dailyResponses });
+        setTotalLeads(data.totalLeads);
+        setTotalResponses(data.totalResponses);
+      } catch (error) {
+        console.error("Failed to fetch stats", error);
+      }
+    };
+    fetchStats();
   }, []);
 
   const handleDeleteClick = (id: number) => {
@@ -95,6 +125,16 @@ const AdminDashboard: React.FC = () => {
           <h3 className="text-gray-700 text-lg font-bold">Total Blogs</h3>
           <h3 className="text-2xl font-bold mt-2 ml-2">{blogs.length}</h3>
         </div>
+        <StatCard
+          title="Total Submission"
+          value={totalLeads}
+          icon={<FaFileAlt className="text-green-500 text-xl" />} color="text-green-500"
+        />
+        <StatCard
+          title="Total Responses"
+          value={totalResponses}
+          icon={<FaComments className="text-yellow-500 text-xl" />} color="text-yellow-500"
+        />
         <div className="bg-white shadow-md rounded-xl py-4 px-8 flex flex-col">
           <div className="flex justify-between">
             <h3 className="text-gray-700 font-bold">Likes:</h3>
@@ -109,8 +149,60 @@ const AdminDashboard: React.FC = () => {
             <h2 className="font-bold">123,434</h2>
           </div>
         </div>
+        
       </section>
-
+      <div className="col-span-1 lg:col-span-2">
+        <div className="bg-white p-6 rounded-2xl shadow-xl">
+          <h2 className="text-xl font-semibold text-gray-800 mb-4 flex items-center gap-2">
+            <span>📊</span> Weekly Insights
+          </h2>
+          <ResponsiveContainer width="100%" height={360}>
+            <ComposedChart
+              data={stats.dailyLeads.map((lead, index) => ({
+                date: lead.date,
+                leads: lead.count,
+                responses: stats.dailyResponses[index]?.count || 0,
+              }))}
+              margin={{ top: 20, right: 20, left: 0, bottom: 10 }}
+            >
+              <defs>
+                <linearGradient id="leadGradient" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="5%" stopColor="#6366f1" stopOpacity={0.9} />
+                  <stop offset="95%" stopColor="#6366f1" stopOpacity={0.1} />
+                </linearGradient>
+                <linearGradient id="responseGradient" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="5%" stopColor="#16a34a" stopOpacity={0.8} />
+                  <stop offset="95%" stopColor="#16a34a" stopOpacity={0.1} />
+                </linearGradient>
+              </defs>
+              <CartesianGrid strokeDasharray="4 4" stroke="#e5e7eb" />
+              <XAxis dataKey="date" tick={{ fontSize: 12, fill: "#6b7280" }} />
+              <YAxis allowDecimals={false} tick={{ fontSize: 12, fill: "#6b7280" }} />
+              <Tooltip
+                contentStyle={{ backgroundColor: "#fff", borderColor: "#ddd", borderRadius: "8px" }}
+                labelStyle={{ color: "#374151", fontWeight: "bold" }}
+                itemStyle={{ fontSize: "14px", color: "#4b5563" }}
+              />
+              <Legend verticalAlign="top" height={36} iconType="circle" />
+              <Bar
+                dataKey="leads"
+                fill="url(#leadGradient)"
+                radius={[6, 6, 0, 0]}
+                name="Submission"
+                barSize={28}
+              />
+              <Line
+                type="monotone"
+                dataKey="responses"
+                stroke="#16a34a"
+                strokeWidth={3}
+                dot={{ r: 5, strokeWidth: 2, fill: "#16a34a" }}
+                name="Responses"
+              />
+            </ComposedChart>
+          </ResponsiveContainer>
+        </div>
+      </div>
       {/* Recent Blogs Section */}
       <section className="mb-6">
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -240,5 +332,18 @@ const AdminDashboard: React.FC = () => {
     </div>
   );
 };
+
+
+const StatCard = ({ title, value, icon, color }) => (
+<div className="bg-gradient-to-br from-white to-gray-50 p-5 rounded-2xl shadow-md hover:shadow-xl transition-all duration-300">
+<div className="flex items-center space-x-4">
+<div className={`p-3 rounded-full ${color} bg-opacity-10`}>{icon}</div>
+<div>
+<h4 className="text-sm font-medium text-gray-500">{title}</h4>
+<p className="text-xl font-semibold text-gray-800">{value}</p>
+</div>
+</div>
+</div>
+);
 
 export default AdminDashboard;
