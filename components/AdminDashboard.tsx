@@ -108,6 +108,22 @@ const AdminDashboard: React.FC = () => {
 
   const recentBlogs = blogs.slice(0, 10); // Display only the most recent 10 blogs
 
+  const [submissions, setSubmissions] = useState([]);
+  const [responses, setResponses] = useState([]);
+
+  useEffect(() => {
+    const fetchData = async () => {
+      const [subRes, respRes] = await Promise.all([
+        axios.get("/api/admin/leads/submissions"),
+        axios.get("/api/admin/leads/responses"),
+      ]);
+      setSubmissions(subRes.data);
+      setResponses(respRes.data);
+    };
+
+    fetchData();
+  }, []);
+
   return (
     <div className="p-6 bg-gray-100 min-h-screen">
       {/* Analytics Cards */}
@@ -151,6 +167,71 @@ const AdminDashboard: React.FC = () => {
         </div>
         
       </section>
+
+
+      <div className="space-y-12">
+        {/* Submissions Table */}
+        <div>
+          <h2 className="text-xl font-semibold">Lead Submissions</h2>
+          <table className="min-w-full table-auto border mt-4">
+            <thead className="bg-gray-100 text-xs uppercase text-gray-500">
+              <tr>
+                <th className="px-6 py-3">Name</th>
+                <th className="px-6 py-3">Email</th>
+                <th className="px-6 py-3">Phone</th>
+                <th className="px-6 py-3">IP</th>
+                <th className="px-6 py-3">Date</th>
+              </tr>
+            </thead>
+            <tbody>
+              {submissions.map((lead) => (
+                <tr key={lead.id} className="border-b hover:bg-gray-50">
+                  <td className="px-6 py-4">
+                    {lead.firstName} {lead.lastName}
+                  </td>
+                  <td className="px-6 py-4">{lead.email || "—"}</td>
+                  <td className="px-6 py-4">{lead.phone || "—"}</td>
+                  <td className="px-6 py-4">{lead.fromIp || "—"}</td>
+                  <td className="px-6 py-4">
+                    {new Date(lead.createdAt).toLocaleDateString()}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+
+        {/* Responses Table */}
+        <div>
+          <h2 className="text-xl font-semibold ">Leads with Responses</h2>
+          <table className="min-w-full table-auto border mt-4 mb-10">
+            <thead className="bg-green-100 text-xs uppercase text-green-700">
+              <tr>
+                <th className="px-6 py-3">Lead ID</th>
+                <th className="px-6 py-3">Response</th>
+                <th className="px-6 py-3">Email</th>
+                <th className="px-6 py-3">Phone</th>
+                <th className="px-6 py-3">Date</th>
+              </tr>
+            </thead>
+            <tbody>
+              {responses.map((leadId, index) => (
+                <tr key={index} className="border-b hover:bg-green-50">
+                  <td className="px-6 py-4">{leadId}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+
+
+
+
+
+
+
       <div className="col-span-1 lg:col-span-2">
         <div className="bg-white p-6 rounded-2xl shadow-xl">
           <h2 className="text-xl font-semibold text-gray-800 mb-4 flex items-center gap-2">
