@@ -1,9 +1,13 @@
+"use client";
+
 import AdminDashboard from "@/components/AdminDashboard";
+import { useSession } from "@/lib/auth-client";
 import { BellIcon } from "@heroicons/react/16/solid";
 import { UserCircleIcon } from "lucide-react";
 import React from "react";
 
 const DashboardPage: React.FC = () => {
+  const {data : session} = useSession();
   return (
     <div>
       {/* Header */}
@@ -19,9 +23,9 @@ const DashboardPage: React.FC = () => {
             <UserCircleIcon className="size-10" />
             <div>
               <h3 className="text-md font-semibold text-slate-900">
-                Jewel Rana
+              {session?.user?.name}
               </h3>
-              <p className="text-sm font-medium">Admin</p>
+              <p className="text-sm font-medium">{session?.user?.role}</p>
             </div>
           </div>
         </div>

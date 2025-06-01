@@ -2,8 +2,10 @@ import MovingCostCalculator from "@/components/MovingCostCalculator";
 
 const ContactUs: React.FC = () => {
   return (
-    <div className="w-full bg-white rounded-lg shadow-lg p-8">
+    <div className="flex flex-col md:flex-row justify-center items-center gap-16 w-full">
       <MovingCostCalculator />
+
+      <div className="flex flex-col gap-4 align-center justify-center">
       <h1 className="text-3xl font-bold text-teal-700 mb-4">Contact Us</h1>
 
       <div className="space-y-4 text-gray-700">
@@ -27,6 +29,7 @@ const ContactUs: React.FC = () => {
             info@movingquotetexas.com
           </a>
         </div>
+      </div>
       </div>
     </div>
   );
