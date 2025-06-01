@@ -225,13 +225,6 @@ const AdminDashboard: React.FC = () => {
         </div>
       </div>
 
-
-
-
-
-
-
-
       <div className="col-span-1 lg:col-span-2">
         <div className="bg-white p-6 rounded-2xl shadow-xl">
           <h2 className="text-xl font-semibold text-gray-800 mb-4 flex items-center gap-2">
