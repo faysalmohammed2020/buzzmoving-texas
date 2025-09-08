@@ -1,109 +1,97 @@
-// import { PrismaClient } from "@prisma/client";
-// import { postdata, PostData } from "../app/data/postdata";
+/* eslint-disable no-console */
+import { PrismaClient, Prisma } from '@prisma/client' // ← Prisma ইমপোর্ট দরকার
+import { postdata } from '../app/data/postdata'
 
-// const prisma = new PrismaClient();
+const prisma = new PrismaClient()
 
-// <<<<<<< HEAD
-// async function main() {
-//   console.log("🌱 Seeding Blog Posts...");
+// JSON helper: JSON ফিল্ডে null পাঠাতে Prisma.DbNull/JsonNull ব্যবহার করুন
+const jsonOrNull = (v: unknown) => {
+  if (v === undefined || v === null) return Prisma.DbNull // ডাটাবেজ NULL
+  return v // string/object/array/number/boolean সবই JSON ভ্যালিড
+}
 
-//   // Check if posts already exist
-//   const existingPosts = await prisma.blogPost.count();
-//   if (existingPosts > 0) {
-//     console.log("✅ Blog posts already exist. Skipping seeding.");
-//     return;
-// =======
-// // async function main() {
-// //   const postCount = await db.blogPost.count();
+// Date helper
+const parseDate = (d: string | null | undefined): Date | null => {
+  if (!d) return null
+  return new Date(String(d).replace(' ', 'T'))
+}
 
-// //   if (!postCount) {
-// //     const formattedPosts = postdata.map((post) => ({
-// //       post_author: Number(post.post_author),
-// //       name: post.name || "Unnamed Post",
-// //       category:
-// //         typeof post.category === "object" ? post.category.name : post.category, // Convert category to string
-// //       post_date: new Date(post.post_date),
-// //       post_date_gmt: new Date(post.post_date_gmt),
-// //       post_content: post.post_content, // ✅ Use Prisma schema field name
-// //       post_title: post.post_title, // ✅ Use Prisma schema field name
-// //       tags: "", // Set empty string or modify as needed
-// //       post_excerpt: post.post_excerpt || "",
-// //       post_status: post.post_status,
-// //       comment_status: post.comment_status,
-// //       ping_status: post.ping_status,
-// //       post_password: post.post_password || "",
-// //       post_name: post.post_name,
-// //       to_ping: post.to_ping || "",
-// //       pinged: post.pinged || "",
-// //       post_modified: new Date(post.post_modified),
-// //       post_modified_gmt: new Date(post.post_modified_gmt),
-// //       post_content_filtered: post.post_content_filtered || "",
-// //       post_parent: Number(post.post_parent),
-// //       guid: post.guid,
-// //       menu_order: Number(post.menu_order),
-// //       post_type: post.post_type,
-// //       post_mime_type: post.post_mime_type || "",
-// //       comment_count: Number(post.comment_count),
-// //       createdAt: new Date(), // Ensure Prisma default works correctly
-// //     }));
+async function main() {
+  console.log(`🌱 Seeding BlogPost… Total posts: ${postdata.length}`)
 
-// //     await db.blogPost.createMany({
-// //       data: formattedPosts,
-// //       skipDuplicates: true, // Avoid duplicate inserts
-// //     });
+  let created = 0
+  let updated = 0
 
-//     console.log("✅ Post seeding successful!");
-//   } else {
-//     console.log("✅ Posts already exist. Skipping seeding.");
-// >>>>>>> 0fed351b59033d66660dc26f8e3a3ca11cbc8ba8
-//   }
+  for (const p of postdata as any[]) {
+    const data = {
+      post_author: p.post_author ? Number(p.post_author) : null,
+      tags: p.tags ? String(p.tags) : null,
+      name: p.name ? String(p.name) : null,
+      category: p.category
+        ? (typeof p.category === 'string'
+            ? p.category
+            : p.category?.name ?? p.category?.label ?? p.category?.value ?? null)
+        : null,
+      post_date: parseDate(p.post_date),
+      post_date_gmt: parseDate(p.post_date_gmt),
 
-//   // Format and insert posts
-//   const formattedPosts = postdata.map((post) => ({
-//     post_author: post.post_author ? Number(post.post_author) : null,
-//     name: post.name || "Unnamed Post",
-//     category:
-//       typeof post.category === "object" && post.category?.name
-//         ? post.category.name
-//         : String(post.category),
-//     post_date: post.post_date ? new Date(post.post_date) : new Date(),
-//     post_date_gmt: post.post_date_gmt ? new Date(post.post_date_gmt) : new Date(),
-//     post_content: { text: post.post_content || "No content provided." }, // JSON format
-//     post_title: post.post_title || "Untitled",
-//     post_excerpt: post.post_excerpt || "",
-//     post_status: post.post_status || "draft",
-//     comment_status: post.comment_status || "open",
-//     ping_status: post.ping_status || "closed",
-//     post_password: post.post_password || "",
-//     post_name: post.post_name || "",
-//     to_ping: post.to_ping || "",
-//     pinged: post.pinged || "",
-//     post_modified: post.post_modified ? new Date(post.post_modified) : new Date(),
-//     post_modified_gmt: post.post_modified_gmt ? new Date(post.post_modified_gmt) : new Date(),
-//     post_content_filtered: post.post_content_filtered || "",
-//     post_parent: post.post_parent ? Number(post.post_parent) : null,
-//     guid: post.guid || "",
-//     menu_order: post.menu_order ? Number(post.menu_order) : 0,
-//     post_type: post.post_type || "post",
-//     post_mime_type: post.post_mime_type || "",
-//     comment_count: post.comment_count ? Number(post.comment_count) : 0,
-//     createdAt: new Date(),
-//   }));
+      // ❗ এখানে আগের মতো JSON.stringify করবেন না
+      // null হলে Prisma.DbNull/JsonNull ব্যবহার করুন
+      post_content: jsonOrNull(p.post_content),
 
-//   // Insert posts into the database
-//   await prisma.blogPost.createMany({
-//     data: formattedPosts,
-//     skipDuplicates: true, // Prevents duplicate entries
-//   });
+      post_title: String(p.post_title ?? ''),
+      post_excerpt: p.post_excerpt ? String(p.post_excerpt) : null,
+      post_status: p.post_status ? String(p.post_status) : null,
+      comment_status: p.comment_status ? String(p.comment_status) : null,
+      ping_status: p.ping_status ? String(p.ping_status) : null,
+      post_password: p.post_password ? String(p.post_password) : null,
+      post_name: String(p.post_name ?? p.post_title ?? ''),
+      to_ping: p.to_ping ? String(p.to_ping) : null,
+      pinged: p.pinged ? String(p.pinged) : null,
+      post_modified: parseDate(p.post_modified),
+      post_modified_gmt: parseDate(p.post_modified_gmt),
+      post_content_filtered: p.post_content_filtered ? String(p.post_content_filtered) : null,
+      post_parent: p.post_parent ? Number(p.post_parent) : null,
+      guid: p.guid ? String(p.guid) : null,
+      menu_order: p.menu_order ? Number(p.menu_order) : null,
+      post_type: p.post_type ? String(p.post_type) : null,
+      post_mime_type: p.post_mime_type ? String(p.post_mime_type) : null,
+      comment_count: p.comment_count ? Number(p.comment_count) : null,
+      // createdAt: Prisma-তে default(now()) আছে, তাই দরকার নেই
+    }
 
-//   console.log("✅ Blog posts seeded successfully!");
-// }
+    // 🔎 findUnique নয়—কারণ guid/post_name unique নয়
+    const existing = await prisma.blogPost.findFirst({
+      where: {
+        OR: [
+          data.guid ? { guid: data.guid } : undefined,
+          data.post_name ? { post_name: data.post_name } : undefined,
+        ].filter(Boolean) as any[],
+      },
+    })
 
-// // Run the seed function
-// main()
-//   .catch((error) => {
-//     console.error("Error seeding database:", error);
-//   })
-//   .finally(async () => {
-//     await prisma.$disconnect();
-//   });
+    if (existing) {
+      await prisma.blogPost.update({
+        where: { id: existing.id },
+        data,
+      })
+      updated++
+      console.log(`📝 Updated: ${data.post_title}`)
+    } else {
+      await prisma.blogPost.create({ data })
+      created++
+      console.log(`✅ Created: ${data.post_title}`)
+    }
+  }
+
+  console.log(`🎉 Done. Created: ${created}, Updated: ${updated}`)
+}
+
+main()
+  .catch((e) => {
+    console.error(e)
+    process.exit(1)
+  })
+  .finally(async () => {
+    await prisma.$disconnect()
+  })
