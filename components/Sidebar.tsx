@@ -5,8 +5,6 @@ import { usePathname } from "next/navigation";
 import Link from "next/link";
 import { sidebarItems, SidebarItem } from "@/app/data/sidebarData";
 import { LuArrowLeftFromLine, LuArrowRightToLine } from "react-icons/lu";
-import { VscAccount } from "react-icons/vsc";
-import { Button } from "./ui/button";
 import { signOut, useSession } from "@/lib/auth-client";
 import { useRouter } from "next/navigation";
 
@@ -65,24 +63,6 @@ const Sidebar: React.FC = () => {
           ))}
         </ul>
       </nav>
-      <div className="hidden md:flex justify-end items-center space-x-4 mb-8 mr-5">
-        {session ? (
-            <button
-              onClick={() => {
-                signOut({
-                  fetchOptions: {
-                    onSuccess: () => {
-                      router.push("/");
-                    }
-                  }
-                })
-              }}
-              className="bg-red-500 text-white px-4 py-2 rounded-lg hover:bg-red-600"
-            >
-              Sign Out
-            </button>
-          ): <div className="text-white bg-red-500  font-semibold px-4 py-2 rounded-lg">Not Login</div>}
-        </div>
        </aside>
   );
 };

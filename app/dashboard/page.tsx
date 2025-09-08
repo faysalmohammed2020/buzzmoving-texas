@@ -51,7 +51,6 @@ const DashboardPage: React.FC = () => {
               className="flex items-center gap-3 p-2 rounded-lg hover:bg-gray-100 transition-colors"
               onClick={() => {
                 setShowProfileMenu(!showProfileMenu);
-                setShowNotifications(false);
               }}
             >
               <div className="flex items-center justify-center bg-gradient-to-r from-indigo-500 to-purple-600 rounded-full h-10 w-10 text-white font-semibold">
