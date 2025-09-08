@@ -193,7 +193,7 @@ const MovingCalculator: React.FC = () => {
     str.replace(/\b\w/g, (char) => char.toUpperCase());
 
   return (
-    <div className="max-w-xl mx-auto bg-white text-black p-4 border border-gray-300 rounded-xl shadow-md text-sm">
+    <div className="bg-white text-black p-4 border border-gray-300 rounded-xl shadow-md text-sm">
       <h2 className="text-xl font-bold text-center mb-4">Moving Cost Calculator</h2>
       <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
         <input type="text" placeholder="Full Name" className="p-2 border rounded" value={name} onChange={(e) => setName(e.target.value)} />
