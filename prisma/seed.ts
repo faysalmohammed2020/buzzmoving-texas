@@ -28,7 +28,7 @@ async function seedAdmin() {
     },
     create: {
       email,
-      role: 'Admin',
+      role: 'ADMIN',
       passwordHash: hashedPassword,
       name: 'Admin User',
     },
