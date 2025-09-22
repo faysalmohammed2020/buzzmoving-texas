@@ -72,7 +72,7 @@ const SignupForm = () => {
       }
 
       toast.success("Account created! You're now signed in.");
-      router.push("/dashboard"); // adjust if your route differs
+      router.push("/admin/dashboard"); // adjust if your route differs
     } catch (err: any) {
       toast.dismiss(loadingId);
       const msg = err?.message || "Something went wrong";
