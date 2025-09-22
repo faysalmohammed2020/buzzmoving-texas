@@ -15,62 +15,49 @@ model User {
   id            String    @id @default(cuid())
   email         String    @unique
   name          String?
-  role          String?
-  passwordHash  String?   @map("password")     // was 'password' column
+  role          String
+  passwordHash  String?   @map("password")
   phone         String?
   image         String?
-  emailVerified DateTime?                       // MUST change type in DB from Boolean? -> DateTime?
+  emailVerified DateTime?
   createdAt     DateTime  @default(now())
   updatedAt     DateTime  @updatedAt
-
   sessions      Session[]
   accounts      Account[]
 
-  @@map("users") // existing table name
+  @@map("users")
 }
 
 model Session {
   id           String   @id @default(cuid())
   expires      DateTime @map("expiresAt")
   sessionToken String   @unique @map("token")
-  role         String?
   createdAt    DateTime
   updatedAt    DateTime
   ipAddress    String?
   userAgent    String?
-
-  userId String
-  user   User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId       String
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@map("sessions")
 }
 
 model Account {
   id                    String   @id @default(cuid())
-  // NextAuth required identity
   provider              String   @map("providerId")
   providerAccountId     String   @map("accountId")
-  type                  String   @default("oauth") // বা "credentials" ব্যবহার করলে আপডেট করবে
-  role                  String?
-
-  // Relation
+  type                  String   @default("oauth")
   userId                String
   user                  User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-
-  // Tokens (mapped)
   access_token          String?  @map("accessToken")
   refresh_token         String?  @map("refreshToken")
   id_token              String?  @map("idToken")
-  expires_at            Int?     @map("accessTokenExpiresAt") // seconds since epoch (NextAuth expects Int?)
-  // refreshTokenExpiresAt কে রাখতে চাইলে আলাদা কাস্টম কলাম হিসেবেই থাকবে:
+  expires_at            Int?     @map("accessTokenExpiresAt")
   refreshTokenExpiresAt DateTime?
   token_type            String?
   scope                 String?
   session_state         String?
-
-  // Credentials-provider password যদি রাখো (optional/custom)
   password              String?
-
   createdAt             DateTime
   updatedAt             DateTime
 
@@ -90,6 +77,47 @@ model VerificationToken {
   @@map("verifications")
 }
 
+/* -------------------------
+   Your existing domain models
+--------------------------*/
+
+model lead {
+  id            Int       @id @default(autoincrement())
+  key           String
+  leadType      String    @map("lead_type")
+  leadSource    String    @map("lead_source")
+  referer       String
+  fromIp        String    @map("from_ip")
+  firstName     String    @map("first_name")
+  lastName      String    @map("last_name")
+  email         String
+  phone         String
+  phoneExt      String?   @map("phone_ext")
+  fromState     String    @map("from_state")
+  fromStateCode String    @map("from_state_code")
+  fromCity      String    @map("from_city")
+  fromZip       String    @map("from_zip")
+  toState       String    @map("to_state")
+  toStateCode   String    @map("to_state_code")
+  toCity        String    @map("to_city")
+  toZip         String    @map("to_zip")
+  moveDate      DateTime? @map("move_date")
+  moveSize      String    @map("move_size")
+  selfPackaging Boolean?  @map("self_packaging")
+  hasCar        Boolean?  @map("has_car")
+  carMake       String?   @map("car_make")
+  carModel      String?   @map("car_model")
+  carMakeYear   String?   @map("car_make_year")
+  createdAt     DateTime  @default(now())
+}
+
+model ApiLead {
+  id        Int      @id @default(autoincrement())
+  leadId    Int      @unique
+  callrail  Json
+  createdAt DateTime @default(now())
+}
+
 model BlogPost {
   id                    Int       @id @default(autoincrement())
   post_author           Int?
@@ -105,7 +133,7 @@ model BlogPost {
   comment_status        String?
   ping_status           String?
   post_password         String?
-  post_name             String?  @unique
+  post_name             String?   @unique
   to_ping               String?
   pinged                String?
   post_modified         DateTime?
@@ -118,39 +146,4 @@ model BlogPost {
   post_mime_type        String?
   comment_count         Int?
   createdAt             DateTime? @default(now())
-}
-model lead {
-  id              Int      @id @default(autoincrement())
-  key             String
-  leadType        String   @map("lead_type")
-  leadSource      String   @map("lead_source")
-  referer         String
-  fromIp          String   @map("from_ip")
-  firstName       String   @map("first_name")
-  lastName        String   @map("last_name")
-  email           String
-  phone           String
-  phoneExt        String?  @map("phone_ext")
-  fromState       String   @map("from_state")
-  fromStateCode   String   @map("from_state_code")
-  fromCity        String   @map("from_city")
-  fromZip         String   @map("from_zip")
-  toState         String   @map("to_state")
-  toStateCode     String   @map("to_state_code")
-  toCity          String   @map("to_city")
-  toZip           String   @map("to_zip")
-  moveDate        DateTime? @map("move_date")
-  moveSize        String   @map("move_size")
-  selfPackaging   Boolean?  @map("self_packaging")
-  hasCar          Boolean?  @map("has_car")
-  carMake         String?  @map("car_make")
-  carModel        String?  @map("car_model")
-  carMakeYear     String?  @map("car_make_year")
-  createdAt  DateTime @default(now())
-}
-model ApiLead {
-  id        Int      @id @default(autoincrement())
-  leadId    Int      @unique
-  callrail  Json     
-  createdAt DateTime @default(now()) 
 }
