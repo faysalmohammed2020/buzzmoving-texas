@@ -30,17 +30,17 @@ export const sidebarItems: SidebarItem[] = [
     icon: <FaPenFancy className="size-6" />,
   },
 
-  // Analytics
-  {
-    href: "/dashboard/analytics",
-    label: "Analytics",
-    icon: <AiOutlineBarChart className="size-6" />,
-  },
+  // // Analytics
+  // {
+  //   href: "/dashboard/analytics",
+  //   label: "Analytics",
+  //   icon: <AiOutlineBarChart className="size-6" />,
+  // },
 
-  // Site Settings
-  {
-    href: "/dashboard/site-settings",
-    label: "Site Settings",
-    icon: <MdOutlineSettings className="size-6" />,
-  },
+  // // Site Settings
+  // {
+  //   href: "/dashboard/site-settings",
+  //   label: "Site Settings",
+  //   icon: <MdOutlineSettings className="size-6" />,
+  // },
 ];
