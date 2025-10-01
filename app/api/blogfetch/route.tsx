@@ -1,120 +1,80 @@
+// app/api/blogfetch/route.ts
 import { NextResponse } from "next/server";
 import prisma from "@/prisma/prisma";
+import sanitizeHtml from "sanitize-html";
+import { load, CheerioAPI, Element } from "cheerio";
 
-// ✅ Create New Blog Post
-export async function POST(req: Request) {
-  try {
-    const body = await req.json();
-    console.log("Received POST request with data:", body); // Debugging log
+// --- helper: wrap orphan cells/rows into proper tables ---
+function normalizeTables(rawHtml: string) {
+  const $ = load(rawHtml, { decodeEntities: false });
 
-    const {
-      post_title,
-      post_content,
-      category,
-      tags,
-      post_author,
-      post_status,
-      post_excerpt,
-    } = body;
+  // 1) Wrap any <td>/<th> not inside a <tr> into a <tr>
+  $("td, th").each((_, el) => {
+    const $el = $(el);
+    if ($el.closest("tr").length === 0) {
+      const $tr = $("<tr></tr>");
+      $el.replaceWith($tr.append($el));
+    }
+  });
 
-    if (!post_title || !post_content || !category) {
-      return NextResponse.json(
-        { error: "Title, content, and category are required" },
-        { status: 400 }
-      );
+  // 2) For each container that has <tr> not inside a <table>, group siblings into a table
+  //    We'll scan all <tr> that are outside any table, then group consecutive ones per parent.
+  const orphanTrs = $("tr").filter((_, el) => $(el).closest("table").length === 0);
+
+  orphanTrs.each((_, el) => {
+    const $tr = $(el);
+
+    // if already processed (wrapped) skip
+    if ($tr.parent().is("tbody") && $tr.closest("table").length) return;
+
+    // group consecutive <tr> siblings under same parent (before/after)
+    const parent = $tr.parent();
+    const group: Element[] = [];
+    // move backward to include previous consecutive trs
+    let start = $tr;
+    while (start.prev().is("tr") && start.prev().closest("table").length === 0) {
+      start = start.prev();
+    }
+    // from start, collect consecutive trs
+    let cur = start;
+    while (cur.is("tr") && cur.closest("table").length === 0) {
+      group.push(cur.get(0));
+      const next = cur.next();
+      if (!next.is("tr") || next.closest("table").length !== 0) break;
+      cur = next;
     }
 
-    const newBlogPost = await prisma.blogPost.create({
-      data: {
-        post_name: post_title,
-        post_title,
-        post_content,
-        category,
-        tags: tags || "", // Optional tags defaulting to an empty string
-        post_author,
-        post_status,
-        post_excerpt,
-        post_date: new Date(),
-        post_date_gmt: new Date(),
-        post_modified: new Date(),
-        post_modified_gmt: new Date(),
-        createdAt: new Date(),
-      },
+    // create table wrapper
+    const $table = $('<table></table>');
+    const $tbody = $('<tbody></tbody>');
+    $table.append($tbody);
+
+    // insert wrapper before first tr in group, then move all trs inside
+    (group.length ? $(group[0]) : $tr).before($table);
+    group.forEach((node) => {
+      $tbody.append($(node)); // moves the node
     });
 
-    console.log("Blog post created successfully:", newBlogPost); // Debugging log
-    return NextResponse.json(newBlogPost, { status: 201 });
-  } catch (error) {
-    console.error("❌ Error creating blog post:", error);
-    return NextResponse.json(
-      { error: "Failed to create blog post" },
-      { status: 500 }
-    );
-  }
+    // if parent became empty & was just a wrapper div/p/section with nothing else, it's fine to leave it
+  });
+
+  // 3) Also: Some people put cells directly inside <p> or <div>. If a single <tr> exists inside a <p>, above logic already wrapped.
+
+  return $.html();
 }
 
-// ✅ Update Blog Post
-export async function PUT(req: Request) {
-  try {
-    const { id, post_title, post_content, category, tags } = await req.json();
-
-    if (!id || !post_title || !post_content || !category) {
-      return NextResponse.json(
-        { error: "ID, Title, Content, and Category are required" },
-        { status: 400 }
-      );
-    }
-
-    const updatedBlogPost = await prisma.blogPost.update({
-      where: { id },
-      data: {
-        post_title,
-        post_content,
-        category,
-        tags: tags || "",
-      },
-    });
-
-    return NextResponse.json(updatedBlogPost, { status: 200 });
-  } catch (error) {
-    console.error("❌ Error updating blog post:", error);
-    return NextResponse.json(
-      { error: "Failed to update blog post" },
-      { status: 500 }
-    );
-  }
+function sanitizeKeepTables(html: string) {
+  return sanitizeHtml(html, {
+    allowedTags: sanitizeHtml.defaults.allowedTags.concat([
+      "table", "thead", "tbody", "tfoot", "tr", "th", "td", "caption"
+    ]),
+    allowedAttributes: {
+      a: ["href", "name", "target", "rel"],
+      "*": ["colspan", "rowspan", "style", "class"]
+    },
+  });
 }
 
-// ✅ Delete Blog Post
-export async function DELETE(req: Request) {
-  try {
-    const { id } = await req.json();
-
-    if (!id) {
-      return NextResponse.json(
-        { error: "Blog post ID is required" },
-        { status: 400 }
-      );
-    }
-
-    await prisma.blogPost.delete({
-      where: { id },
-    });
-
-    return NextResponse.json(
-      { message: "Blog post deleted successfully" },
-      { status: 200 }
-    );
-  } catch (error) {
-    console.error("❌ Error deleting blog post:", error);
-    return NextResponse.json(
-      { error: "Failed to delete blog post" },
-      { status: 500 }
-    );
-  }
-}
-
-// ✅ Fetch All Blog Posts
 export async function GET(req: Request) {
   try {
     const { searchParams } = new URL(req.url);
@@ -125,7 +85,6 @@ export async function GET(req: Request) {
     if (category) filters.category = category;
     if (authorId) filters.post_author = parseInt(authorId);
 
-    // ✅ Ensure response matches the expected `Blog` type
     const blogPosts = await prisma.blogPost.findMany({
       where: filters,
       orderBy: { createdAt: "desc" },
@@ -133,19 +92,23 @@ export async function GET(req: Request) {
         id: true,
         post_title: true,
         post_content: true,
-        category: true, // ✅ Ensure category is included
-        tags: true, // ✅ Ensure tags are included
+        category: true,
+        tags: true,
         post_status: true,
         createdAt: true,
       },
     });
 
-    return NextResponse.json(blogPosts, { status: 200 });
+    const normalized = blogPosts.map((p) => {
+      const raw = String(p.post_content ?? "");
+      const withTables = normalizeTables(raw);
+      const safe = sanitizeKeepTables(withTables);
+      return { ...p, post_content: safe };
+    });
+
+    return NextResponse.json(normalized, { status: 200 });
   } catch (error) {
     console.error("Error fetching blog posts:", error);
-    return NextResponse.json(
-      { error: "Failed to fetch blog posts." },
-      { status: 500 }
-    );
+    return NextResponse.json({ error: "Failed to fetch blog posts." }, { status: 500 });
   }
 }
