@@ -9,7 +9,17 @@ const nextConfig: NextConfig = {
   },
   reactStrictMode: false,
   images: {
-    domains: ["movingquotetexas.com", "via.placeholder.com"],
+    remotePatterns: 
+    [
+       {
+        protocol: 'https',
+        hostname: 'movingquotetexas.com',
+      },
+       {
+        protocol: 'https',
+        hostname: 'via.placeholder.com',
+      },
+    ]
   },
   async rewrites() {
     return [
