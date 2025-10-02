@@ -74,7 +74,7 @@ const HeaderMenu: React.FC = () => {
         <div>
           <Link href="/">
             <Image
-              src="/image/logo.png"
+              src="/image/Logo.png"
               alt="Company Logo"
               width={386}
               height={59}

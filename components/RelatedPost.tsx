@@ -37,6 +37,7 @@ const RelatedPost: React.FC<RelatedPostProps> = ({ currentPostID }) => {
         imageUrl: extractFirstImage(post.post_content),
       }));
     setRelatedPosts(postsWithImages);
+     console.log("Current Post Content:", postdata[1].post_content);
   }, [currentPostID]);
 
   return (
