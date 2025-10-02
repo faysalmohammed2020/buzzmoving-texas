@@ -24,7 +24,7 @@ const BlogManagement: React.FC = () => {
     const fetchBlogs = async () => {
       setIsLoading(true);
       try {
-        const response = await fetch("/api/blogfetch");
+        const response = await fetch("/api/blogpost");
         const data = await response.json();
 
         console.log("Raw API Response:", data);
@@ -74,7 +74,7 @@ const BlogManagement: React.FC = () => {
   const handleDeleteClick = async (id: number) => {
     if (window.confirm("Are you sure you want to delete this blog post?")) {
       try {
-        const response = await fetch("/api/blogfetch", {
+        const response = await fetch("/api/blogpost", {
           method: "DELETE",
           headers: {
             "Content-Type": "application/json",

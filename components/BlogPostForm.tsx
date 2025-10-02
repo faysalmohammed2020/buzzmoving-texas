@@ -227,7 +227,7 @@ const BlogPostForm: React.FC<BlogPostFormProps> = ({
     };
 
     try {
-      const response = await fetch("/api/blogfetch", {
+      const response = await fetch("/api/blogpost", {
         // Ensure correct API path
         method: formData.id ? "PUT" : "POST",
         headers: {

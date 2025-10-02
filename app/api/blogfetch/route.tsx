@@ -1,4 +1,4 @@
-// app/api/blogfetch/route.ts
+// app/api/blogpost/route.ts
 import { NextResponse } from "next/server";
 import prisma from "@/prisma/prisma";
 import sanitizeHtml from "sanitize-html";

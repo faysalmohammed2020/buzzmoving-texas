@@ -26,7 +26,7 @@ const HeaderMenu: React.FC = () => {
     // Fetch blog data from the API
     const fetchBlogs = async () => {
       try {
-        const response = await fetch("/api/blogfetch");
+        const response = await fetch("/api/blogpost");
         if (!response.ok) {
           throw new Error("Failed to fetch blog data");
         }
