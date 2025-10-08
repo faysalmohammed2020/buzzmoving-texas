@@ -78,6 +78,7 @@ const HeaderMenu: React.FC = () => {
               alt="Company Logo"
               width={386}
               height={59}
+              priority
             />
           </Link>
         </div>
