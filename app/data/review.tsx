@@ -9,7 +9,7 @@ export interface Review {
 
 export const reviews: Review[] = [
   {
-    name: "Estiak Ahmed",
+    name: "John Doe",
     role: "Texas Company",
     date: "14th Feb, 2024",
     rating: 5,
@@ -17,7 +17,7 @@ export const reviews: Review[] = [
     image: "/image/profile.png",
   },
   {
-    name: "Juwel Rana",
+    name: "Micheal Antony",
     role: "California",
     date: "14th Feb, 2024",
     rating: 5,
@@ -25,7 +25,7 @@ export const reviews: Review[] = [
     image: "/image/profile.png",
   },
   {
-    name: "Faysal Ahmed",
+    name: "Emily Rose",
     role: "Texas Company",
     date: "14th Feb, 2024",
     rating: 4,
