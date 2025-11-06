@@ -21,11 +21,36 @@ const extractFirstImage = (htmlContent: string): string | null => {
     const parser = new DOMParser();
     const doc = parser.parseFromString(htmlContent, "text/html");
     const imgElement = doc.querySelector("img");
-    
+    if (!imgElement) return "/placeholder-blog.svg";
+
+    let src = imgElement.getAttribute("src") || "";
+
+    // --- ✅ Use BASE URL from .env (SSR-safe) ---
+    const baseURL =
+      process.env.NEXT_PUBLIC_BASE_URL ||
+      (typeof window !== "undefined" ? window.location.origin : "");
+
+    try {
+      // /public/... → /...
+      if (src.startsWith("/public/")) {
+        src = src.replace(/^\/public\//, "/");
+      }
+
+      if (src.startsWith("/")) {
+        // relative path → prepend .env base
+        src = `${baseURL}${src}`;
+      } else {
+        // absolute → rebuild on current base (handles localhost ⇄ prod)
+        const u = new URL(src, baseURL);
+        const cleanPath = u.pathname.replace(/^\/public\//, "/");
+        src = `${baseURL}${cleanPath}${u.search}${u.hash}`;
+      }
+    } catch {
+      // keep as-is on URL parse error
+    }
+
     // Provide a professional-looking placeholder if no image is found
-    return imgElement
-      ? imgElement.getAttribute("src")
-      : "/placeholder-blog.svg"; // Assume you have a clean SVG placeholder in your public folder
+    return src || "/placeholder-blog.svg"; // Assume you have a clean SVG placeholder in your public folder
   }
   return null;
 };
@@ -81,19 +106,36 @@ const BlogPage: React.FC = () => {
     const images: { [key: string]: string | null } = {};
     blogs.forEach((post) => {
       images[post.id] = extractFirstImage(post.post_content);
+      const src = extractFirstImage(post.post_content);
+      console.log(`🖼️ Custom Blog ID: ${post.id} | Extracted Image:`, src); // debug log
+      images[post.id] = src;
     });
     setImageUrls(images);
   }, [blogs]);
 
-  // --- Pagination Logic (Remains the same) ---
+  // ✅ Global priority order: image posts first, then non-image posts
+  const prioritizedBlogs = React.useMemo(() => {
+    const hasImg = (post: Blog) => {
+      const url = imageUrls[post.id];
+      return !!(url && url !== "/placeholder-blog.svg");
+    };
+    // image থাকা = 1, না থাকলে = 0 → desc
+    return [...blogs].sort((a, b) => {
+      const aHas = hasImg(a) ? 1 : 0;
+      const bHas = hasImg(b) ? 1 : 0;
+      return bHas - aHas;
+    });
+  }, [blogs, imageUrls]);
+
+  // --- Pagination Logic (now applied on prioritizedBlogs) ---
+  const totalPages = Math.ceil(prioritizedBlogs.length / postsPerPage);
   const indexOfLastPost = currentPage * postsPerPage;
   const indexOfFirstPost = indexOfLastPost - postsPerPage;
-  const currentPosts = blogs.slice(indexOfFirstPost, indexOfLastPost);
-  const totalPages = Math.ceil(blogs.length / postsPerPage);
+  const currentPosts = prioritizedBlogs.slice(indexOfFirstPost, indexOfLastPost);
 
   const paginate = (pageNumber: number) => setCurrentPage(pageNumber);
 
-  // Generate Page Numbers with "..." when needed (Logic remains the same)
+  // Generate Page Numbers with "..." when needed (Remains the same)
   const getPageNumbers = () => {
     const pages: (number | string)[] = [];
     const maxVisiblePages = 3;
@@ -102,19 +144,14 @@ const BlogPage: React.FC = () => {
       return Array.from({ length: totalPages }, (_, i) => i + 1);
     }
 
-    // Simplified logic for brevity in the final code, ensuring it still works
     if (currentPage <= maxVisiblePages) {
-        // ... (original logic for page numbers)
-        return [1, 2, 3, "...", totalPages]; 
+      return [1, 2, 3, "...", totalPages];
     } else if (currentPage > totalPages - maxVisiblePages) {
-        // ... (original logic for page numbers)
-        return [1, "...", totalPages - 2, totalPages - 1, totalPages]; 
+      return [1, "...", totalPages - 2, totalPages - 1, totalPages];
     } else {
-        // ... (original logic for page numbers)
-        return [1, "...", currentPage - 1, currentPage, currentPage + 1, "...", totalPages];
+      return [1, "...", currentPage - 1, currentPage, currentPage + 1, "...", totalPages];
     }
   };
-
 
   // --- Render Section ---
   if (isLoading) {
@@ -143,12 +180,12 @@ const BlogPage: React.FC = () => {
       <div className="container mx-auto px-4 max-w-7xl">
         {/* Editorial Header */}
         <div className="text-center mb-12">
-            <h1 className="text-6xl font-extrabold text-gray-900 tracking-tight">
-                Our Blogs
-            </h1>
-            <p className="mt-4 text-xl text-gray-600 max-w-2xl mx-auto">
-                Stay updated with our latest industry deep-dives, expert opinions, and essential guides.
-            </p>
+          <h1 className="text-6xl font-extrabold text-gray-900 tracking-tight">
+            Our Blogs
+          </h1>
+          <p className="mt-4 text-xl text-gray-600 max-w-2xl mx-auto">
+            Stay updated with our latest industry deep-dives, expert opinions, and essential guides.
+          </p>
         </div>
 
         {/* Blog Grid: Enhanced Cards */}
@@ -156,14 +193,14 @@ const BlogPage: React.FC = () => {
           {currentPosts.map((post: Blog) => {
             const imageUrl = imageUrls[post.id] || "/placeholder-blog.svg";
             const postDate = new Date(post.createdAt).toLocaleDateString("en-US", { year: "numeric", month: "short", day: "numeric" });
-            
+
             // Read time calculation for professional look
             const wordCount = post.post_content.replace(/<[^>]+>/g, " ").trim().split(/\s+/).length;
             const readTime = Math.max(1, Math.ceil(wordCount / 200));
 
             return (
               <Link key={post.id} href={`/blog/${post.id}`} passHref className="group">
-                <div 
+                <div
                   className="bg-white rounded-2xl overflow-hidden shadow-xl hover:shadow-2xl transition-all duration-300 transform group-hover:-translate-y-1 h-full flex flex-col border border-gray-100"
                 >
                   {/* Image Container with Aspect Ratio */}
@@ -177,37 +214,39 @@ const BlogPage: React.FC = () => {
                       sizes="(max-width: 768px) 100vw, (max-width: 1200px) 50vw, 33vw"
                     />
                   </div>
-                  
+
                   {/* Content Body */}
                   <div className="p-6 flex flex-col flex-grow">
                     {/* Category Tag */}
                     <span className="text-xs font-semibold uppercase text-indigo-600 tracking-widest mb-2">
-                        {post.post_category}
+                      {post.post_category}
                     </span>
-                    
+
                     {/* Title */}
                     <h2 className="text-2xl font-bold text-gray-900 leading-tight mb-3 group-hover:text-indigo-700 transition-colors">
-                        {post.post_title}
+                      {post.post_title}
                     </h2>
-                    
+
                     {/* Excerpt */}
                     <div className="flex-grow">
-                        <p className="text-gray-600 line-clamp-3">
-                            {/* Simple text cleanup for a better excerpt */}
-                            {post.post_content.replace(/<[^>]+>/g, " ").trim().substring(0, 150)}...
-                        </p>
+                      <p className="text-gray-600 line-clamp-3">
+                        {/* Simple text cleanup for a better excerpt */}
+                        {post.post_content.replace(/<[^>]+>/g, " ").trim().substring(0, 150)}...
+                      </p>
                     </div>
 
                     {/* Footer Metadata */}
                     <div className="mt-5 pt-4 border-t border-gray-100 flex items-center justify-between text-sm text-gray-500">
-                        <span className="flex items-center gap-1">
-                            <svg className="w-4 h-4 text-indigo-500" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" /></svg>
-                            {postDate}
-                        </span>
-                        <span className="flex items-center gap-1">
-                             <svg className="w-4 h-4 text-indigo-500" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
-                            {readTime} min read
-                        </span>
+                      <span className="flex items-center gap-1">
+                        <svg className="w-4 h-4 text-indigo-500" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" /></svg>
+                        {postDate}
+                      </span>
+                      <span className="flex items-center gap-1">
+                        <svg className="w-4 h-4 text-indigo-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+                        </svg>
+                        {readTime} min read
+                      </span>
                     </div>
                   </div>
                 </div>
