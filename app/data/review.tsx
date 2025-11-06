@@ -33,7 +33,7 @@ export const reviews: Review[] = [
     image: "/image/profile.png",
   },
   {
-    name: "Faysal Ahmed",
+    name: "John Smith",
     role: "Texas Company",
     date: "14th Feb, 2024",
     rating: 4,
@@ -41,7 +41,7 @@ export const reviews: Review[] = [
     image: "/image/profile.png",
   },
   {
-    name: "Faysal Ahmed",
+    name: "Mr. Johnny",
     role: "Texas Company",
     date: "14th Feb, 2024",
     rating: 4,
@@ -49,7 +49,7 @@ export const reviews: Review[] = [
     image: "/image/profile.png",
   },
   {
-    name: "Faysal Ahmed",
+    name: "Martin",
     role: "Texas Company",
     date: "14th Feb, 2024",
     rating: 4,
