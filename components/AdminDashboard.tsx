@@ -1,6 +1,5 @@
 "use client";
-import React, { useState, useEffect } from "react";
-import VisitorMarquee from "./VisitorMarquee";
+import React, { useState, useEffect, useMemo } from "react";
 import {
   BarChart,
   Bar,
@@ -11,7 +10,6 @@ import {
   ResponsiveContainer,
   ComposedChart,
   Legend,
-  Line,
   Area
 } from "recharts";
 import axios from "axios";
@@ -23,12 +21,10 @@ import {
   FaTrash,
   FaGlobeAmericas,
   FaRegChartBar,
-  FaUsers,
   FaBlog,
   FaArrowUp,
   FaArrowDown
 } from "react-icons/fa";
-import { HiOutlineUserGroup, HiOutlineChatAlt2, HiOutlineShare } from "react-icons/hi";
 
 type ApiBlog = {
   id: number;
@@ -47,12 +43,74 @@ interface Blog {
   post_title: string;
   post_status: string;
   comment_status: string;
+  createdAt?: string | null; // for trends
 }
+
+type Lead = {
+  id: number;
+  key?: string;
+  leadType?: string;
+  leadSource?: string;
+  referer?: string;
+  fromIp: string;
+  firstName: string;
+  lastName: string;
+  email: string;
+  phone: string;
+  phoneExt?: string | null;
+  fromState: string;
+  fromStateCode: string;
+  fromCity: string;
+  fromZip: string;
+  toState: string;
+  toStateCode: string;
+  toCity: string;
+  toZip: string;
+  moveDate?: string | null; // ISO string
+  moveSize: string;
+  selfPackaging?: boolean | null;
+  hasCar?: boolean | null;
+  carMake?: string | null;
+  carModel?: string | null;
+  carMakeYear?: string | null;
+  createdAt: string; // ISO
+};
 
 const normalizeCommentStatus = (val: unknown) => {
   const s = String(val ?? "").toLowerCase();
   return s === "open" || s === "closed" ? s : "open";
 };
+
+// ---------- helpers ----------
+function uniq<T>(arr: T[], keyFn: (x: T) => string | number | null | undefined) {
+  const set = new Set<string | number>();
+  for (const item of arr) {
+    const k = keyFn(item);
+    if (k !== null && k !== undefined && k !== "") set.add(k);
+  }
+  return set.size;
+}
+function between(d: Date, start: Date, end: Date) {
+  return d >= start && d < end;
+}
+function startOfMonth(d = new Date()) {
+  return new Date(d.getFullYear(), d.getMonth(), 1);
+}
+function addMonths(d: Date, m: number) {
+  return new Date(d.getFullYear(), d.getMonth() + m, 1);
+}
+function addDays(d: Date, n: number) {
+  return new Date(d.getTime() + n * 24 * 60 * 60 * 1000);
+}
+function pctChange(curr: number, prev: number): { value: string; isPositive: boolean } {
+  if (prev <= 0) {
+    if (curr <= 0) return { value: "0%", isPositive: false };
+    return { value: "+100%", isPositive: true };
+  }
+  const delta = ((curr - prev) / prev) * 100;
+  const val = `${delta >= 0 ? "+" : ""}${delta.toFixed(1)}%`;
+  return { value: val, isPositive: delta >= 0 };
+}
 
 const AdminDashboard: React.FC = () => {
   const [blogs, setBlogs] = useState<Blog[]>([]);
@@ -67,7 +125,7 @@ const AdminDashboard: React.FC = () => {
   const [totalLeads, setTotalLeads] = useState(0);
   const [totalResponses, setTotalResponses] = useState(0);
 
-  // ✅ Fetch blogs & total from our own API: /api/blogpost
+  // Blogs
   useEffect(() => {
     const fetchBlogs = async () => {
       setIsLoading(true);
@@ -77,7 +135,6 @@ const AdminDashboard: React.FC = () => {
         if (!res.ok) throw new Error("Failed to fetch blogs");
 
         const payload = await res.json();
-        // Supports both shapes: array OR { items, total }
         const items: ApiBlog[] = Array.isArray(payload) ? payload : payload.items ?? [];
         const total: number = Array.isArray(payload) ? items.length : payload.total ?? items.length;
 
@@ -86,6 +143,7 @@ const AdminDashboard: React.FC = () => {
           post_title: item.post_title,
           post_status: String(item.post_status ?? "draft"),
           comment_status: normalizeCommentStatus(item.comment_status),
+          createdAt: item.createdAt ?? item.post_date ?? null,
         }));
 
         setBlogs(transformed);
@@ -101,6 +159,7 @@ const AdminDashboard: React.FC = () => {
     fetchBlogs();
   }, []);
 
+  // Leads stats
   useEffect(() => {
     const fetchStats = async () => {
       try {
@@ -116,6 +175,7 @@ const AdminDashboard: React.FC = () => {
     fetchStats();
   }, []);
 
+  // Blog actions
   const handleDeleteClick = async (id: number) => {
     if (!window.confirm("Are you sure you want to delete this blog post?")) return;
     try {
@@ -131,7 +191,6 @@ const AdminDashboard: React.FC = () => {
       alert("Failed to delete blog post. Please try again.");
     }
   };
-
   const handleEditClick = (blog: Blog) => {
     setEditBlogData(blog);
     setIsEditModalVisible(true);
@@ -162,25 +221,109 @@ const AdminDashboard: React.FC = () => {
 
   const recentBlogs = blogs.slice(0, 5);
 
-  const [submissions, setSubmissions] = useState<any[]>([]);
+  // Submissions / Responses
+  const [submissions, setSubmissions] = useState<Lead[]>([]);
   const [responses, setResponses] = useState<any[]>([]);
+  const [subsLoading, setSubsLoading] = useState<boolean>(true);
+  const [subsError, setSubsError] = useState<string | null>(null);
+
   useEffect(() => {
     const fetchData = async () => {
-      const [subRes, respRes] = await Promise.all([
-        axios.get("/api/admin/leads/submissions"),
-        axios.get("/api/admin/leads/responses"),
-      ]);
-      setSubmissions(subRes.data.slice(0, 5));
-      setResponses(respRes.data.slice(0, 5));
+      setSubsLoading(true);
+      setSubsError(null);
+      try {
+        const [subRes, respRes] = await Promise.all([
+          axios.get<Lead[]>("/api/admin/leads/submissions"),
+          axios.get<any[]>("/api/admin/leads/responses"),
+        ]);
+        setSubmissions(subRes.data ?? []);
+        setResponses(respRes.data?.slice(0, 5) ?? []);
+      } catch (e) {
+        console.error("Failed to load submissions/responses", e);
+        setSubsError("Failed to load submissions.");
+      } finally {
+        setSubsLoading(false);
+      }
     };
     fetchData();
   }, []);
 
-  const engagementData = [
-    { metric: "Likes", value: "123,434", icon: <HiOutlineUserGroup className="text-xl text-blue-500" />, change: "+12.3%", isPositive: true },
-    { metric: "Comments", value: "45,230", icon: <HiOutlineChatAlt2 className="text-xl text-green-500" />, change: "+8.2%", isPositive: true },
-    { metric: "Shares", value: "28,125", icon: <HiOutlineShare className="text-xl text-purple-500" />, change: "-3.5%", isPositive: false },
-  ];
+  const recentSubmissions = submissions.slice(0, 5);
+
+  // KPI (IP-based)
+  const {
+    totalVisitorsValue,
+    totalVisitorsTrend,
+    thisMonthVisitorsValue,
+    thisMonthVisitorsTrend,
+    totalBlogsTrend,
+    totalSubmissionsTrend,
+  } = useMemo(() => {
+    const now = new Date();
+    const last30Start = addDays(now, -30);
+    const prev30Start = addDays(now, -60);
+    const prev30End = last30Start;
+
+    const thisMonthStart = startOfMonth(now);
+    const nextMonthStart = addMonths(thisMonthStart, 1);
+    const lastMonthStart = addMonths(thisMonthStart, -1);
+
+    const leadsWithDate = submissions.map((l) => ({ ...l, _d: new Date(l.createdAt) }));
+
+    const totalVisitorsValue = uniq(submissions, (l) => l.fromIp);
+
+    const last30Leads = leadsWithDate.filter((l) => between(l._d, last30Start, now));
+    const prev30Leads = leadsWithDate.filter((l) => between(l._d, prev30Start, prev30End));
+    const last30Unique = uniq(last30Leads, (l) => l.fromIp);
+    const prev30Unique = uniq(prev30Leads, (l) => l.fromIp);
+    const totalVisitorsTrend = pctChange(last30Unique, prev30Unique);
+
+    const thisMonthLeads = leadsWithDate.filter((l) => between(l._d, thisMonthStart, nextMonthStart));
+    const lastMonthLeads = leadsWithDate.filter((l) => between(l._d, lastMonthStart, thisMonthStart));
+    const thisMonthVisitorsValue = uniq(thisMonthLeads, (l) => l.fromIp);
+    const lastMonthUnique = uniq(lastMonthLeads, (l) => l.fromIp);
+    const thisMonthVisitorsTrend = pctChange(thisMonthVisitorsValue, lastMonthUnique);
+
+    const blogDates = blogs
+      .map((b) => (b.createdAt ? new Date(b.createdAt) : null))
+      .filter((d): d is Date => !!d && !isNaN(d.getTime()));
+    const last30Blogs = blogDates.filter((d) => between(d, last30Start, now)).length;
+    const prev30Blogs = blogDates.filter((d) => between(d, prev30Start, prev30End)).length;
+    const totalBlogsTrend = pctChange(last30Blogs, prev30Blogs);
+
+    const submissionsLast30 = last30Leads.length;
+    const submissionsPrev30 = prev30Leads.length;
+    const totalSubmissionsTrend = pctChange(submissionsLast30, submissionsPrev30);
+
+    return {
+      totalVisitorsValue,
+      totalVisitorsTrend,
+      thisMonthVisitorsValue,
+      thisMonthVisitorsTrend,
+      totalBlogsTrend,
+      totalSubmissionsTrend,
+    };
+  }, [submissions, blogs]);
+
+  // Visitor Distribution (dynamic): Top 10 states by unique IP
+  const visitorDistribution = useMemo(() => {
+    // unique IP per state
+    const map = new Map<string, Set<string>>();
+    for (const l of submissions) {
+      const stateLabel =
+        (l.fromStateCode && l.fromStateCode.trim()) ||
+        (l.fromState && l.fromState.trim()) ||
+        "Unknown";
+      if (!map.has(stateLabel)) map.set(stateLabel, new Set());
+      if (l.fromIp) map.get(stateLabel)!.add(l.fromIp);
+    }
+    const rows = Array.from(map.entries()).map(([name, ips]) => ({
+      name,
+      count: ips.size,
+    }));
+    rows.sort((a, b) => b.count - a.count);
+    return rows.slice(0, 10);
+  }, [submissions]);
 
   return (
     <div className="p-6 bg-gray-50 min-h-screen">
@@ -188,29 +331,29 @@ const AdminDashboard: React.FC = () => {
       <section className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-5 mb-8">
         <StatCard
           title="Total Visitors"
-          value="45,450"
-          trend={{ value: "+12.3%", isPositive: true }}
+          value={Intl.NumberFormat().format(totalVisitorsValue)}
+          trend={totalVisitorsTrend}
           icon={<FaEye className="text-xl text-blue-500" />}
           color="bg-blue-100"
         />
         <StatCard
-          title="This Month"
-          value="5,839"
-          trend={{ value: "-11%", isPositive: false }}
+          title="This Month (Unique IPs)"
+          value={Intl.NumberFormat().format(thisMonthVisitorsValue)}
+          trend={thisMonthVisitorsTrend}
           icon={<FaChartLine className="text-xl text-purple-500" />}
           color="bg-purple-100"
         />
         <StatCard
           title="Total Blogs"
           value={isLoading ? "…" : totalBlogs}
-          trend={{ value: "+5.2%", isPositive: true }}
+          trend={totalBlogsTrend}
           icon={<FaBlog className="text-xl text-green-500" />}
           color="bg-green-100"
         />
         <StatCard
           title="Total Submissions"
           value={totalLeads}
-          trend={{ value: "+8.7%", isPositive: true }}
+          trend={totalSubmissionsTrend}
           icon={<FaFileAlt className="text-xl text-amber-500" />}
           color="bg-amber-100"
         />
@@ -269,56 +412,59 @@ const AdminDashboard: React.FC = () => {
           </ResponsiveContainer>
         </div>
 
-        {/* Engagement Metrics & Visitor Map */}
-        <div className="flex flex-col gap-6">
-          <div className="bg-white rounded-xl shadow-sm p-5">
-            <h3 className="text-lg font-semibold text-gray-800 mb-4 flex items-center gap-2">
-              <FaUsers className="text-indigo-500" /> Engagement Metrics
-            </h3>
-            <div className="space-y-4">
-              {engagementData.map((item, index) => (
-                <div key={index} className="flex items-center justify-between">
-                  <div className="flex items-center gap-3">
-                    <div className="p-2 rounded-lg bg-gray-100">{item.icon}</div>
-                    <div>
-                      <span className="text-gray-600 block">{item.metric}</span>
-                      <span className="text-xs text-gray-400">Social media</span>
-                    </div>
-                  </div>
-                  <div className="text-right">
-                    <span className="font-semibold text-gray-800 block">{item.value}</span>
-                    <span
-                      className={`text-xs flex items-center justify-end ${
-                        item.isPositive ? "text-green-600" : "text-red-600"
-                      }`}
-                    >
-                      {item.isPositive ? <FaArrowUp className="mr-1" /> : <FaArrowDown className="mr-1" />}
-                      {item.change}
-                    </span>
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
-
-          <div className="bg-white p-5 rounded-xl shadow-sm">
-            <h2 className="text-lg font-semibold text-gray-800 mb-4 flex items-center gap-2">
-              <FaGlobeAmericas className="text-indigo-500" /> Visitor Distribution
-            </h2>
-            <div className="h-48 flex items-center justify-center">
-              <VisitorMarquee />
-            </div>
+        {/* Visitor Distribution (Dynamic) */}
+        <div className="bg-white rounded-xl shadow-sm p-5">
+          <h3 className="text-lg font-semibold text-gray-800 mb-4 flex items-center gap-2">
+            <FaGlobeAmericas className="text-indigo-500" /> Visitor Distribution (Top 10 States by Unique IP)
+          </h3>
+          <div className="h-[300px]">
+            {subsLoading ? (
+              <div className="h-full flex items-center justify-center text-gray-600">Loading…</div>
+            ) : subsError ? (
+              <div className="h-full flex items-center justify-center text-red-500">{subsError}</div>
+            ) : visitorDistribution.length === 0 ? (
+              <div className="h-full flex items-center justify-center text-gray-500">No data</div>
+            ) : (
+              <ResponsiveContainer width="100%" height="100%">
+                <BarChart
+                  data={visitorDistribution}
+                  layout="vertical"
+                  margin={{ top: 10, right: 10, left: 10, bottom: 10 }}
+                >
+                  <CartesianGrid strokeDasharray="3 3" horizontal={false} stroke="#f3f4f6" />
+                  <XAxis type="number" allowDecimals={false} tick={{ fontSize: 12, fill: "#6b7280" }} />
+                  <YAxis
+                    dataKey="name"
+                    type="category"
+                    tick={{ fontSize: 12, fill: "#6b7280" }}
+                    width={100}
+                  />
+                  <Tooltip
+                    contentStyle={{
+                      backgroundColor: "#fff",
+                      border: "none",
+                      borderRadius: "8px",
+                      boxShadow: "0 4px 6px -1px rgba(0,0,0,0.1), 0 2px 4px -1px rgba(0,0,0,0.06)",
+                    }}
+                    labelStyle={{ color: "#374151", fontWeight: "bold" }}
+                    itemStyle={{ fontSize: "14px", color: "#4b5563" }}
+                    formatter={(v: any) => [`${v} unique IPs`, "Visitors"]}
+                  />
+                  <Bar dataKey="count" name="Visitors" radius={[0, 4, 4, 0]} fill="#6366f1" />
+                </BarChart>
+              </ResponsiveContainer>
+            )}
           </div>
         </div>
       </section>
 
-      {/* Tables Section */}
+      {/* Two half tables */}
       <section className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8">
-        {/* Submissions Table */}
+        {/* Submissions Table (recent 5) */}
         <div className="bg-white rounded-xl shadow-sm overflow-hidden">
           <div className="p-5 border-b border-gray-200 flex justify-between items-center">
             <h2 className="text-lg font-semibold text-gray-800">Recent Lead Submissions</h2>
-            <span className="text-xs bg-blue-100 text-blue-800 py-1 px-2 rounded-full">{submissions.length}</span>
+            <span className="text-xs bg-blue-100 text-blue-800 py-1 px-2 rounded-full">{recentSubmissions.length}</span>
           </div>
           <div className="overflow-x-auto">
             <table className="w-full">
@@ -330,8 +476,8 @@ const AdminDashboard: React.FC = () => {
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-200">
-                {submissions.length > 0 ? (
-                  submissions.map((lead: any) => (
+                {recentSubmissions.length > 0 ? (
+                  recentSubmissions.map((lead) => (
                     <tr key={lead.id} className="hover:bg-gray-50 transition-colors">
                       <td className="px-5 py-4 whitespace-nowrap">
                         {lead.firstName} {lead.lastName}
@@ -393,6 +539,79 @@ const AdminDashboard: React.FC = () => {
         </div>
       </section>
 
+      {/* Full submissions table */}
+      <section className="mb-8">
+        <div className="bg-white rounded-xl shadow-sm overflow-hidden">
+          <div className="p-5 border-b border-gray-200 flex justify-between items-center">
+            <h2 className="text-lg font-semibold text-gray-800">Calculate Form Submissions User</h2>
+            <span className="text-xs bg-indigo-100 text-indigo-800 py-1 px-2 rounded-full">
+              {submissions.length}
+            </span>
+          </div>
+
+          {subsLoading ? (
+            <div className="p-6 text-center text-gray-600">Loading submissions…</div>
+          ) : subsError ? (
+            <div className="p-6 text-center text-red-500">{subsError}</div>
+          ) : submissions.length === 0 ? (
+            <div className="p-6 text-center text-gray-500">No submissions found.</div>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead className="bg-gray-50 text-xs uppercase text-gray-500">
+                  <tr>
+                    <th className="px-4 py-3 text-left">ID</th>
+                    <th className="px-4 py-3 text-left">Name</th>
+                    <th className="px-4 py-3 text-left">Email</th>
+                    <th className="px-4 py-3 text-left">Phone</th>
+                    <th className="px-4 py-3 text-left">From State</th>
+                    <th className="px-4 py-3 text-left">From Code</th>
+                    <th className="px-4 py-3 text-left">From City</th>
+                    <th className="px-4 py-3 text-left">From ZIP</th>
+                    <th className="px-4 py-3 text-left">To State</th>
+                    <th className="px-4 py-3 text-left">To Code</th>
+                    <th className="px-4 py-3 text-left">To City</th>
+                    <th className="px-4 py-3 text-left">To ZIP</th>
+                    <th className="px-4 py-3 text-left">Move Date</th>
+                    <th className="px-4 py-3 text-left">Move Size</th>
+                    <th className="px-4 py-3 text-left">IP</th>
+                    <th className="px-4 py-3 text-left">Created</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-gray-200">
+                  {submissions.map((lead) => {
+                    const fmt = (v: any) => (v === null || v === undefined || v === "" ? "—" : String(v));
+                    const fmtDate = (iso?: string | null) => (iso ? new Date(iso).toLocaleDateString() : "—");
+                    return (
+                      <tr key={lead.id} className="hover:bg-gray-50 transition-colors">
+                        <td className="px-4 py-3 whitespace-nowrap">#{lead.id}</td>
+                        <td className="px-4 py-3 whitespace-nowrap">
+                          {fmt(lead.firstName)} {fmt(lead.lastName)}
+                        </td>
+                        <td className="px-4 py-3 whitespace-nowrap">{fmt(lead.email)}</td>
+                        <td className="px-4 py-3 whitespace-nowrap">{fmt(lead.phone)}</td>
+                        <td className="px-4 py-3 whitespace-nowrap">{fmt(lead.fromState)}</td>
+                        <td className="px-4 py-3 whitespace-nowrap">{fmt(lead.fromStateCode)}</td>
+                        <td className="px-4 py-3 whitespace-nowrap">{fmt(lead.fromCity)}</td>
+                        <td className="px-4 py-3 whitespace-nowrap">{fmt(lead.fromZip)}</td>
+                        <td className="px-4 py-3 whitespace-nowrap">{fmt(lead.toState)}</td>
+                        <td className="px-4 py-3 whitespace-nowrap">{fmt(lead.toStateCode)}</td>
+                        <td className="px-4 py-3 whitespace-nowrap">{fmt(lead.toCity)}</td>
+                        <td className="px-4 py-3 whitespace-nowrap">{fmt(lead.toZip)}</td>
+                        <td className="px-4 py-3 whitespace-nowrap">{fmtDate(lead.moveDate)}</td>
+                        <td className="px-4 py-3 whitespace-nowrap">{fmt(lead.moveSize)}</td>
+                        <td className="px-4 py-3 whitespace-nowrap">{fmt(lead.fromIp)}</td>
+                        <td className="px-4 py-3 whitespace-nowrap">{fmtDate(lead.createdAt)}</td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+      </section>
+
       {/* Recent Blogs Section */}
       <section className="mb-8">
         <div className="bg-white rounded-xl shadow-sm overflow-hidden">
@@ -418,7 +637,7 @@ const AdminDashboard: React.FC = () => {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-gray-200">
-                  {blogs.slice(0, 5).map((blog) => (
+                  {recentBlogs.map((blog) => (
                     <tr key={blog.id} className="hover:bg-gray-50 transition-colors">
                       <td className="px-5 py-4">
                         <p className="font-medium text-gray-900 line-clamp-1">{blog.post_title}</p>

@@ -301,7 +301,7 @@ const MovingCalculator: React.FC = () => {
           disabled={submitting}
           className="px-4 py-2 bg-amber-600 text-white font-medium rounded hover:bg-amber-700 disabled:opacity-60 disabled:cursor-not-allowed"
         >
-          {submitting ? "Submitting..." : "Calculate"}
+          {submitting ? "Submitting..." : "Get a Free Quote"}
         </button>
       </div>
     </div>
