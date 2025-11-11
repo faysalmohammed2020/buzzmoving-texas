@@ -4,9 +4,14 @@ import prisma from "@/prisma/prisma";
 import sanitizeHtml from "sanitize-html";
 import { load, CheerioAPI, Element } from "cheerio";
 
+// ✅ Prod build এ Node APIs নিশ্চিন্তে ব্যবহার করতে
+export const runtime = "nodejs";
+// ✅ API টা static cache না হয়ে live থাকুক
+export const dynamic = "force-dynamic";
+
 // --- helper: wrap orphan cells/rows into proper tables ---
 function normalizeTables(rawHtml: string) {
-  const $ = load(rawHtml, { decodeEntities: false });
+  const $: CheerioAPI = load(rawHtml, { decodeEntities: false });
 
   // 1) Wrap any <td>/<th> not inside a <tr> into a <tr>
   $("td, th").each((_, el) => {
@@ -17,25 +22,22 @@ function normalizeTables(rawHtml: string) {
     }
   });
 
-  // 2) For each container that has <tr> not inside a <table>, group siblings into a table
-  //    We'll scan all <tr> that are outside any table, then group consecutive ones per parent.
+  // 2) Group orphan <tr> into a proper <table><tbody>...</tbody>
   const orphanTrs = $("tr").filter((_, el) => $(el).closest("table").length === 0);
 
   orphanTrs.each((_, el) => {
     const $tr = $(el);
 
-    // if already processed (wrapped) skip
     if ($tr.parent().is("tbody") && $tr.closest("table").length) return;
 
-    // group consecutive <tr> siblings under same parent (before/after)
-    const parent = $tr.parent();
     const group: Element[] = [];
-    // move backward to include previous consecutive trs
+
+    // find first sibling in the consecutive orphan-tr block
     let start = $tr;
     while (start.prev().is("tr") && start.prev().closest("table").length === 0) {
       start = start.prev();
     }
-    // from start, collect consecutive trs
+    // collect consecutive orphan trs
     let cur = start;
     while (cur.is("tr") && cur.closest("table").length === 0) {
       group.push(cur.get(0));
@@ -44,35 +46,50 @@ function normalizeTables(rawHtml: string) {
       cur = next;
     }
 
-    // create table wrapper
-    const $table = $('<table></table>');
-    const $tbody = $('<tbody></tbody>');
+    const $table = $("<table></table>");
+    const $tbody = $("<tbody></tbody>");
     $table.append($tbody);
 
-    // insert wrapper before first tr in group, then move all trs inside
     (group.length ? $(group[0]) : $tr).before($table);
-    group.forEach((node) => {
-      $tbody.append($(node)); // moves the node
-    });
-
-    // if parent became empty & was just a wrapper div/p/section with nothing else, it's fine to leave it
+    group.forEach((node) => $tbody.append($(node)));
   });
-
-  // 3) Also: Some people put cells directly inside <p> or <div>. If a single <tr> exists inside a <p>, above logic already wrapped.
 
   return $.html();
 }
 
-function sanitizeKeepTables(html: string) {
-  return sanitizeHtml(html, {
+// --- sanitizer: keep tables + images safely ---
+function sanitizeKeepTablesAndImages(html: string) {
+  // block dangerous image src (e.g., javascript:)
+  const clean = sanitizeHtml(html, {
     allowedTags: sanitizeHtml.defaults.allowedTags.concat([
+      "img", "figure", "figcaption",
       "table", "thead", "tbody", "tfoot", "tr", "th", "td", "caption"
     ]),
     allowedAttributes: {
       a: ["href", "name", "target", "rel"],
-      "*": ["colspan", "rowspan", "style", "class"]
+      img: ["src", "alt", "width", "height", "class", "style"],
+      "*": ["colspan", "rowspan", "class", "style"],
+    },
+    // allow http/https and (optionally) data URIs for pasted images
+    allowedSchemes: ["http", "https", "mailto"],
+    allowedSchemesByTag: {
+      img: ["http", "https", "data"], // data remove করতে চাইলে ["http","https"] রাখো
+    },
+    allowProtocolRelative: true,
+    // Prevent e.g. <img src="javascript:...">
+    transformTags: {
+      img: (tagName, attribs) => {
+        const src = attribs.src || "";
+        const unsafe = /^\s*javascript:/i.test(src);
+        return {
+          tagName: "img",
+          attribs: unsafe ? {} : attribs,
+        };
+      },
     },
   });
+
+  return clean;
 }
 
 export async function GET(req: Request) {
@@ -102,7 +119,7 @@ export async function GET(req: Request) {
     const normalized = blogPosts.map((p) => {
       const raw = String(p.post_content ?? "");
       const withTables = normalizeTables(raw);
-      const safe = sanitizeKeepTables(withTables);
+      const safe = sanitizeKeepTablesAndImages(withTables);
       return { ...p, post_content: safe };
     });
 
