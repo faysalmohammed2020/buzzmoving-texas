@@ -1,57 +1,122 @@
 "use client";
 
-import React, { useState, useRef, useEffect } from "react";
+import React, { useState, useRef, useEffect, useMemo, useCallback } from "react";
 import Link from "next/link";
 import { ChevronDown, Menu, X } from "lucide-react";
 import { VscAccount } from "react-icons/vsc";
 import Image from "next/image";
 import { signOut, useSession } from "@/lib/auth-client";
 import { Button } from "./ui/button";
+import { useRouter } from "next/navigation";
 
 interface Blog {
   id: number;
   post_title: string;
+  _titleLower: string;
 }
 
 const HeaderMenu: React.FC = () => {
   const [isMobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [hoveredMenu, setHoveredMenu] = useState<string | null>(null);
   const timeoutRef = useRef<NodeJS.Timeout | null>(null);
-  const [isHovered, setIsHovered] = useState<boolean>(false);
-  const [blogs, setBlogs] = useState<Blog[]>([]); // State to store blogs
-  const [searchQuery, setSearchQuery] = useState<string>(""); // Search query state
-  const { data: session } = useSession();
 
+  const [isHovered, setIsHovered] = useState<boolean>(false);
+
+  const [blogs, setBlogs] = useState<Blog[]>([]);
+  const [blogsLoading, setBlogsLoading] = useState(false);
+  const [blogsError, setBlogsError] = useState<string | null>(null);
+  const [hasLoadedBlogs, setHasLoadedBlogs] = useState(false);
+
+  const [searchQuery, setSearchQuery] = useState<string>("");
+  const [debouncedQuery, setDebouncedQuery] = useState<string>("");
+
+  const { data: session } = useSession();
+  const router = useRouter();
+
+  // 🔐 Sign out + fallback redirect (dev/prod same behaviour)
+  const handleSignOut = useCallback(async () => {
+    try {
+      await signOut();
+    } catch (e) {
+      console.error("Sign out failed", e);
+    } finally {
+      router.push("/sign-in"); // তোমার প্রকৃত sign-in route দিলে আরও ভালো
+    }
+  }, [router]);
+
+  // 🕒 Debounce search (300ms)
   useEffect(() => {
-    // Fetch blog data from the API
+    const t = setTimeout(() => setDebouncedQuery(searchQuery.trim()), 300);
+    return () => clearTimeout(t);
+  }, [searchQuery]);
+
+  // 🧠 Lazy-load blogs only when Blog menu open হয় (first time)
+  useEffect(() => {
+    if (hoveredMenu !== "blogs" || hasLoadedBlogs) return;
+
+    const controller = new AbortController();
     const fetchBlogs = async () => {
+      setBlogsLoading(true);
+      setBlogsError(null);
       try {
-        const response = await fetch("/api/blogpost");
+        const response = await fetch("/api/blogpost", {
+          signal: controller.signal,
+        });
         if (!response.ok) {
           throw new Error("Failed to fetch blog data");
         }
         const data = await response.json();
-        console.log("data", data);
-        setBlogs(data); // Update state with fetched blog data
-      } catch (error) {
+
+        const mapped: Blog[] = (data || []).map((item: any) => {
+          const title = String(item.post_title || "");
+          return {
+            id: item.id,
+            post_title: title,
+            _titleLower: title.toLowerCase(),
+          };
+        });
+
+        setBlogs(mapped);
+        setHasLoadedBlogs(true);
+      } catch (error: any) {
+        if (error?.name === "AbortError") return;
         console.error("Error fetching blogs:", error);
+        setBlogsError("Failed to load blogs.");
+      } finally {
+        setBlogsLoading(false);
       }
     };
 
-    fetchBlogs(); // Fetch data when the component mounts
-  }, []);
+    fetchBlogs();
 
-  const filteredBlogs = blogs.filter((blog) =>
-    blog.post_title?.toLowerCase().includes(searchQuery.toLowerCase())
-  );
+    return () => controller.abort();
+  }, [hoveredMenu, hasLoadedBlogs]);
 
-  // Highlight the search term in blog titles
-  const highlightSearchTerm = (text: string, query: string): string => {
+  // 🔍 Filtered blogs (memoized, limited results)
+  const filteredBlogs = useMemo(() => {
+    const MAX_RESULTS = 30; // dropdown এ একসাথে অনেক দেখানোর দরকার নেই
+    const q = debouncedQuery.toLowerCase();
+    if (!q) {
+      return blogs.slice(0, MAX_RESULTS);
+    }
+    return blogs
+      .filter((blog) => blog._titleLower.includes(q))
+      .slice(0, MAX_RESULTS);
+  }, [blogs, debouncedQuery]);
+
+  // 🔵 Highlight search term safely (no dangerouslySetInnerHTML)
+  const renderHighlightedTitle = (text: string, query: string) => {
     if (!query) return text;
     const regex = new RegExp(`(${query})`, "gi");
-    return text.replace(
-      regex,
-      (match) => `<span style="color: blue;">${match}</span>`
+    const parts = text.split(regex);
+    return parts.map((part, idx) =>
+      part.toLowerCase() === query.toLowerCase() ? (
+        <span key={idx} className="text-blue-600">
+          {part}
+        </span>
+      ) : (
+        <span key={idx}>{part}</span>
+      )
     );
   };
 
@@ -71,6 +136,7 @@ const HeaderMenu: React.FC = () => {
   return (
     <header className="bg-[#191C27] shadow-md border-b border-gray-300 sticky top-0 left-0 w-full z-50">
       <nav className="container mx-auto flex items-center justify-between py-4 px-6 text-white">
+        {/* Logo */}
         <div>
           <Link href="/">
             <Image
@@ -83,9 +149,10 @@ const HeaderMenu: React.FC = () => {
           </Link>
         </div>
 
+        {/* Mobile Menu Button */}
         <div className="md:hidden">
           <button
-            onClick={() => setMobileMenuOpen(!isMobileMenuOpen)}
+            onClick={() => setMobileMenuOpen((prev) => !prev)}
             className="text-white"
           >
             {isMobileMenuOpen ? (
@@ -96,11 +163,13 @@ const HeaderMenu: React.FC = () => {
           </button>
         </div>
 
+        {/* Desktop Nav */}
         <ul className="hidden md:flex items-center space-x-10 font-semibold text-lg">
           <li>
             <Link href="/home">Home</Link>
           </li>
 
+          {/* Services Dropdown */}
           <li
             className="group relative"
             onMouseEnter={() => handleMouseEnter("services")}
@@ -160,6 +229,7 @@ const HeaderMenu: React.FC = () => {
             )}
           </li>
 
+          {/* About Dropdown */}
           <li
             className="group relative"
             onMouseEnter={() => handleMouseEnter("about")}
@@ -182,6 +252,7 @@ const HeaderMenu: React.FC = () => {
             <Link href="/contact">Contact</Link>
           </li>
 
+          {/* Blog Dropdown with search */}
           <li
             className="group relative"
             onMouseEnter={() => handleMouseEnter("blogs")}
@@ -195,6 +266,7 @@ const HeaderMenu: React.FC = () => {
             {hoveredMenu === "blogs" && (
               <div className="absolute -left-32 mt-5 w-[450px] bg-white text-black shadow-lg rounded-xl p-4">
                 <div className="flex">
+                  {/* Left promo block */}
                   <div className={`w-1/3 ${isHovered ? "hidden" : "block"}`}>
                     <Image
                       src="/image/delevery4.jpg"
@@ -210,6 +282,7 @@ const HeaderMenu: React.FC = () => {
                     </p>
                   </div>
 
+                  {/* Right: search + list */}
                   <div
                     className={`${
                       isHovered ? "w-full" : "w-2/3"
@@ -230,36 +303,36 @@ const HeaderMenu: React.FC = () => {
                         <hr />
                       </div>
 
-                      <ul className="space-y-3">
-                        <div className="scrollbar mt-4 space-y-4 ">
-                          {filteredBlogs.length > 0 ? (
-                            filteredBlogs.map((blog) => (
-                              <li
-                                key={blog.id}
-                                className="group p-2 rounded-xl hover:from-orange-500 hover:to-orange-900 transition-colors duration-300 ease-in-out shadow-md"
+                      <div className="scrollbar mt-4 space-y-4">
+                        {blogsLoading ? (
+                          <p className="text-gray-500 text-sm">
+                            Loading blogs...
+                          </p>
+                        ) : blogsError ? (
+                          <p className="text-red-600 text-sm">{blogsError}</p>
+                        ) : filteredBlogs.length > 0 ? (
+                          filteredBlogs.map((blog) => (
+                            <div
+                              key={blog.id}
+                              className="group p-2 rounded-xl hover:from-orange-500 hover:to-orange-900 transition-colors duration-300 ease-in-out shadow-md"
+                            >
+                              <Link
+                                href={`/blog/${blog.id}`}
+                                className="text-sm sm:text-base font-medium text-gray-800 hover:underline hover:text-orange-600"
                               >
-                                <Link
-                                  href={`/blog/${blog.id}`}
-                                  className="text-sm sm:text-base font-medium text-gray-800 hover:underline hover:text-orange-600"
-                                >
-                                  <span
-                                    dangerouslySetInnerHTML={{
-                                      __html: highlightSearchTerm(
-                                        blog.post_title,
-                                        searchQuery
-                                      ),
-                                    }}
-                                  />
-                                </Link>
-                              </li>
-                            ))
-                          ) : (
-                            <p className="text-red-800 text-xl">
-                              No blogs found...
-                            </p>
-                          )}
-                        </div>
-                      </ul>
+                                {renderHighlightedTitle(
+                                  blog.post_title,
+                                  debouncedQuery
+                                )}
+                              </Link>
+                            </div>
+                          ))
+                        ) : (
+                          <p className="text-red-800 text-sm">
+                            No blogs found...
+                          </p>
+                        )}
+                      </div>
                     </div>
                   </div>
                 </div>
@@ -268,10 +341,11 @@ const HeaderMenu: React.FC = () => {
           </li>
         </ul>
 
+        {/* Right section: auth + avatar */}
         <div className="hidden md:flex items-center space-x-4">
-        {session ? (
+          {session ? (
             <button
-              onClick={() => signOut()}
+              onClick={handleSignOut}
               className="bg-red-500 text-white px-4 py-2 rounded-lg hover:bg-red-600"
             >
               Logout
@@ -289,6 +363,7 @@ const HeaderMenu: React.FC = () => {
         </div>
       </nav>
 
+      {/* Mobile Menu */}
       {isMobileMenuOpen && (
         <ul className="absolute top-16 left-0 w-full bg-white shadow-md flex flex-col text-lg md:hidden">
           <li className="px-4 py-2 border-b">
@@ -298,7 +373,7 @@ const HeaderMenu: React.FC = () => {
             <Link href="/services">Services</Link>
           </li>
           <li className="px-4 py-2 border-b">
-            <Link href="/about-us/testimonials">About Us</Link>
+            <Link href="/about-us/testimonial">About Us</Link>
           </li>
           <li className="px-4 py-2 border-b">
             <Link href="/contact">Contact</Link>
