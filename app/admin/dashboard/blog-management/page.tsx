@@ -1,78 +1,132 @@
 "use client";
-import React, { useState, useEffect } from "react";
-import BlogPostForm from "@/components/BlogPostForm";
-import PaginatedItems from "@/components/Pagination";
+import React, {
+  useState,
+  useMemo,
+  useCallback,
+  Suspense,
+  useEffect,
+} from "react";
+import useSWR from "swr";
+import dynamic from "next/dynamic";
 
+/** Lazy-loaded components (for faster initial load) */
+const BlogPostForm = dynamic(() => import("@/components/BlogPostForm"), {
+  suspense: true,
+});
+const PaginatedItems = dynamic(() => import("@/components/Pagination"), {
+  suspense: true,
+});
+
+/** Types */
 interface Blog {
   id: number;
   post_title: string;
-  post_content: string; // Ensure post_content is a string
+  post_content: string;
   post_category: string;
   post_tags: string;
   createdAt: any;
 }
 
+/** SWR fetcher (data layer + normalization) */
+const fetcher = async (url: string): Promise<Blog[]> => {
+  const response = await fetch(url, { cache: "no-store" });
+  if (!response.ok) {
+    throw new Error("Failed to fetch blogs");
+  }
+  const data = await response.json();
+
+  const transformed: Blog[] = (data || []).map((item: any) => ({
+    id: item.id,
+    post_title: item.post_title,
+    post_content:
+      typeof item.post_content === "object" && item.post_content?.text
+        ? item.post_content.text
+        : String(item.post_content ?? ""),
+    post_category: item.category,
+    post_tags: item.tags,
+    createdAt: item.createdAt,
+  }));
+
+  return transformed;
+};
+
+/** Debounce hook (for search) */
+const useDebouncedValue = <T,>(value: T, delay: number): T => {
+  const [debounced, setDebounced] = useState<T>(value);
+
+  useEffect(() => {
+    const timer = setTimeout(() => setDebounced(value), delay);
+    return () => clearTimeout(timer);
+  }, [value, delay]);
+
+  return debounced;
+};
+
 const BlogManagement: React.FC = () => {
-  const [blogs, setBlogs] = useState<Blog[]>([]);
-  const [isLoading, setIsLoading] = useState<boolean>(true);
-  const [error, setError] = useState<string | null>(null);
   const [isFormVisible, setIsFormVisible] = useState<boolean>(false);
   const [editBlogData, setEditBlogData] = useState<Blog | null>(null);
   const [searchQuery, setSearchQuery] = useState<string>("");
 
-  useEffect(() => {
-    const fetchBlogs = async () => {
-      setIsLoading(true);
-      try {
-        const response = await fetch("/api/blogpost");
-        const data = await response.json();
+  /** SWR: data, error, mutate (cache + retry + revalidate) */
+  const {
+    data: blogsData,
+    error,
+    mutate,
+  } = useSWR<Blog[]>("/api/blogpost", fetcher, {
+    revalidateOnFocus: true,
+    shouldRetryOnError: true,
+  });
 
-        console.log("Raw API Response:", data);
+  const isLoading = !blogsData && !error;
+  const blogs = blogsData ?? [];
 
-        const transformedData: Blog[] = data.map((item: any) => ({
-          id: item.id,
-          post_title: item.post_title,
-          post_content:
-            typeof item.post_content === "object" && item.post_content.text
-              ? item.post_content.text
-              : String(item.post_content), // Extract text content only
-          post_category: item.category,
-          post_tags: item.tags,
-          createdAt: item.createdAt,
-        }));
+  /** Debounced search value */
+  const debouncedSearch = useDebouncedValue(searchQuery, 300);
 
-        console.log("Transformed Data:", transformedData);
-
-        setBlogs(transformedData);
-      } catch (err) {
-        setError("Failed to fetch blogs. Please try again later.");
-      } finally {
-        setIsLoading(false);
-      }
-    };
-
-    fetchBlogs();
-  }, []);
-
-  const filteredPosts = blogs.filter((post) =>
-    post.post_title
-      ?.toLowerCase()
-      .trim()
-      .includes(searchQuery.toLowerCase().trim())
+  /** Pre-indexed blogs for faster filtering */
+  const indexedBlogs = useMemo(
+    () =>
+      blogs.map((post) => ({
+        ...post,
+        _searchTitle: post.post_title?.toLowerCase().trim() || "",
+      })),
+    [blogs]
   );
 
-  const handleCreateNewClick = () => {
+  /** Filtered posts (title search only, behavior same as before) */
+  const filteredPosts: Blog[] = useMemo(() => {
+    const q = debouncedSearch.toLowerCase().trim();
+    if (!q) return indexedBlogs as Blog[];
+
+    return indexedBlogs.filter((post: any) =>
+      post._searchTitle.includes(q)
+    ) as Blog[];
+  }, [indexedBlogs, debouncedSearch]);
+
+  /** Handlers — memoized with useCallback */
+
+  const handleCreateNewClick = useCallback(() => {
     setEditBlogData(null);
     setIsFormVisible(true);
-  };
+  }, []);
 
-  const handleEditClick = (blog: Blog) => {
+  const handleEditClick = useCallback((blog: Blog) => {
     setEditBlogData(blog);
     setIsFormVisible(true);
-  };
+  }, []);
 
-  const handleDeleteClick = async (id: number) => {
-    if (window.confirm("Are you sure you want to delete this blog post?")) {
+  const handleDeleteClick = useCallback(
+    async (id: number) => {
+      if (!window.confirm("Are you sure you want to delete this blog post?")) {
+        return;
+      }
+
+      // ✅ Optimistic update: UI তে আগে মুছে ফেলি
+      mutate(
+        (current) => (current || []).filter((blog) => blog.id !== id),
+        { revalidate: false }
+      );
+
       try {
         const response = await fetch("/api/blogpost", {
           method: "DELETE",
@@ -82,38 +136,94 @@ const BlogManagement: React.FC = () => {
           body: JSON.stringify({ id }),
         });
 
-        if (response.ok) {
-          alert("Blog post deleted successfully!");
-          setBlogs((prevBlogs) => prevBlogs.filter((blog) => blog.id !== id));
-        } else {
-          alert("Failed to delete blog post. Please try again.");
+        if (!response.ok) {
+          throw new Error("Failed to delete");
         }
-      } catch (error) {
-        alert("An unexpected error occurred. Please try again.");
+
+        alert("Blog post deleted successfully!");
+        // পরে server থেকে fresh data নাও (sync)
+        mutate();
+      } catch (err) {
+        alert("Failed to delete blog post. Please try again.");
+        // rollback করার safest উপায়: revalidate
+        mutate();
       }
-    }
-  };
+    },
+    [mutate]
+  );
 
-  const handleCloseModal = () => {
+  const handleCloseModal = useCallback(() => {
     setIsFormVisible(false);
-  };
+    setEditBlogData(null);
+  }, []);
 
+  /** Blog created/updated হওয়ার পর local cache update */
+  const handleUpdateBlog = useCallback(
+    (updatedBlog: Blog) => {
+      setIsFormVisible(false);
+      setEditBlogData(null);
+
+      // ✅ Optimistic cache update
+      mutate(
+        (current) => {
+          const existing = current || [];
+          const idx = existing.findIndex((b) => b.id === updatedBlog.id);
+
+          // New blog হলে শুরুতে add করো
+          if (idx === -1) {
+            return [updatedBlog, ...existing];
+          }
+
+          // পুরনো থাকলে replace করো
+          const copy = [...existing];
+          copy[idx] = updatedBlog;
+          return copy;
+        },
+        { revalidate: false }
+      );
+
+      // চাইলে পরে fresh রি-ফেচ
+      mutate();
+    },
+    [mutate]
+  );
+
+  /** Loading state → Skeleton */
   if (isLoading) {
-    return <p className="text-center text-gray-600">Loading blogs...</p>;
-  }
-
-  if (error) {
-    return <p className="text-center text-red-500">{error}</p>;
-  }
-
-  const handleUpdateBlog = (updatedBlog: Blog) => {
-    setBlogs((prevBlogs) =>
-      prevBlogs.map((blog) => (blog.id === updatedBlog.id ? updatedBlog : blog))
+    return (
+      <div className="p-6 bg-gray-100 min-h-screen font-sans">
+        <div className="flex justify-between items-center mb-6">
+          <div className="h-8 w-48 bg-gray-300 rounded animate-pulse" />
+          <div className="flex gap-4 items-center">
+            <div className="h-10 w-40 bg-gray-300 rounded animate-pulse" />
+            <div className="h-10 w-32 bg-gray-300 rounded animate-pulse" />
+          </div>
+        </div>
+        <hr />
+        <section className="mt-6 space-y-4">
+          {[...Array(4)].map((_, i) => (
+            <div
+              key={i}
+              className="w-full h-20 bg-gray-200 rounded-xl animate-pulse"
+            />
+          ))}
+        </section>
+      </div>
     );
-  };
+  }
+
+  /** Error state (same behavior, nicer wrapping) */
+  if (error) {
+    return (
+      <p className="text-center text-red-500">
+        Failed to fetch blogs. Please try again later.
+      </p>
+    );
+  }
 
   return (
     <div className="p-6 bg-gray-100 min-h-screen font-sans">
+      {/* Header */}
       <div className="flex justify-between items-center mb-6">
         <h1 className="text-3xl font-bold">Blog Management</h1>
         <div className="flex gap-4">
@@ -135,6 +245,7 @@ const BlogManagement: React.FC = () => {
 
       <hr />
 
+      {/* Content */}
       <section className="mb-6 overflow-y-auto rounded-xl p-2">
         <div className="flex justify-between py-4">
           <h2 className="text-2xl font-bold">
@@ -145,6 +256,7 @@ const BlogManagement: React.FC = () => {
           </h2>
         </div>
 
+        {/* Modal: Blog form (lazy + Suspense) */}
         {isFormVisible && (
           <div
             className="fixed inset-0 bg-gray-500 bg-opacity-70 flex justify-center items-center z-50"
@@ -167,21 +279,42 @@ const BlogManagement: React.FC = () => {
                   &times;
                 </button>
               </div>
-              <BlogPostForm
-                initialData={editBlogData}
-                onClose={handleCloseModal}
-                onUpdate={handleUpdateBlog}
-              />
+
+              <Suspense
+                fallback={
+                  <div className="h-40 bg-gray-100 rounded-xl animate-pulse" />
+                }
+              >
+                <BlogPostForm
+                  initialData={editBlogData}
+                  onClose={handleCloseModal}
+                  onUpdate={handleUpdateBlog}
+                />
+              </Suspense>
             </div>
           </div>
         )}
 
-        <PaginatedItems
-          blogs={filteredPosts}
-          itemsPerPage={8}
-          onEdit={handleEditClick}
-          onDelete={handleDeleteClick}
-        />
+        {/* Paginated list (lazy + Suspense) */}
+        <Suspense
+          fallback={
+            <div className="space-y-3 mt-4">
+              {[...Array(3)].map((_, i) => (
+                <div
+                  key={i}
+                  className="w-full h-16 bg-gray-200 rounded-xl animate-pulse"
+                />
+              ))}
+            </div>
+          }
+        >
+          <PaginatedItems
+            blogs={filteredPosts}
+            itemsPerPage={8}
+            onEdit={handleEditClick}
+            onDelete={handleDeleteClick}
+          />
+        </Suspense>
       </section>
     </div>
   );

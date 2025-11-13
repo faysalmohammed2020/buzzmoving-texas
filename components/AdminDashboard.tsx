@@ -10,9 +10,8 @@ import {
   ResponsiveContainer,
   ComposedChart,
   Legend,
-  Area
+  Area,
 } from "recharts";
-import axios from "axios";
 import {
   FaFileAlt,
   FaEye,
@@ -23,7 +22,7 @@ import {
   FaRegChartBar,
   FaBlog,
   FaArrowUp,
-  FaArrowDown
+  FaArrowDown,
 } from "react-icons/fa";
 
 type ApiBlog = {
@@ -43,7 +42,7 @@ interface Blog {
   post_title: string;
   post_status: string;
   comment_status: string;
-  createdAt?: string | null; // for trends
+  createdAt?: string | null;
 }
 
 type Lead = {
@@ -66,14 +65,14 @@ type Lead = {
   toStateCode: string;
   toCity: string;
   toZip: string;
-  moveDate?: string | null; // ISO string
+  moveDate?: string | null;
   moveSize: string;
   selfPackaging?: boolean | null;
   hasCar?: boolean | null;
   carMake?: string | null;
   carModel?: string | null;
   carMakeYear?: string | null;
-  createdAt: string; // ISO
+  createdAt: string;
 };
 
 const normalizeCommentStatus = (val: unknown) => {
@@ -112,6 +111,8 @@ function pctChange(curr: number, prev: number): { value: string; isPositive: boo
   return { value: val, isPositive: delta >= 0 };
 }
 
+const SUBS_PAGE_SIZE = 50; // একসাথে ৫০টা row দেখাই → huge data তেও fast render
+
 const AdminDashboard: React.FC = () => {
   const [blogs, setBlogs] = useState<Blog[]>([]);
   const [totalBlogs, setTotalBlogs] = useState<number>(0);
@@ -125,7 +126,14 @@ const AdminDashboard: React.FC = () => {
   const [totalLeads, setTotalLeads] = useState(0);
   const [totalResponses, setTotalResponses] = useState(0);
 
-  // Blogs
+  // Submissions / responses
+  const [submissions, setSubmissions] = useState<Lead[]>([]);
+  const [responses, setResponses] = useState<any[]>([]);
+  const [subsLoading, setSubsLoading] = useState<boolean>(true);
+  const [subsError, setSubsError] = useState<string | null>(null);
+  const [subsPage, setSubsPage] = useState(1);
+
+  // ---------- Fetch Blogs ----------
   useEffect(() => {
     const fetchBlogs = async () => {
       setIsLoading(true);
@@ -159,11 +167,12 @@ const AdminDashboard: React.FC = () => {
     fetchBlogs();
   }, []);
 
-  // Leads stats
+  // ---------- Fetch Leads Stats ----------
   useEffect(() => {
     const fetchStats = async () => {
       try {
         const res = await fetch("/api/admin/leads/stats");
+        if (!res.ok) throw new Error("Failed stats");
         const data = await res.json();
         setStats({ dailyLeads: data.dailyLeads ?? [], dailyResponses: data.dailyResponses ?? [] });
         setTotalLeads(data.totalLeads ?? 0);
@@ -175,69 +184,23 @@ const AdminDashboard: React.FC = () => {
     fetchStats();
   }, []);
 
-  // Blog actions
-  const handleDeleteClick = async (id: number) => {
-    if (!window.confirm("Are you sure you want to delete this blog post?")) return;
-    try {
-      const resp = await fetch("/api/blogpost", {
-        method: "DELETE",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ id }),
-      });
-      if (!resp.ok) throw new Error("Delete failed");
-      setBlogs((prev) => prev.filter((b) => b.id !== id));
-      setTotalBlogs((t) => Math.max(0, t - 1));
-    } catch {
-      alert("Failed to delete blog post. Please try again.");
-    }
-  };
-  const handleEditClick = (blog: Blog) => {
-    setEditBlogData(blog);
-    setIsEditModalVisible(true);
-  };
-  const handleEditClose = () => {
-    setIsEditModalVisible(false);
-    setEditBlogData(null);
-  };
-  const handleEditSave = async (updatedBlog: Blog) => {
-    try {
-      const resp = await fetch("/api/blogpost", {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          id: updatedBlog.id,
-          post_title: updatedBlog.post_title,
-          post_status: updatedBlog.post_status,
-        }),
-      });
-      if (!resp.ok) throw new Error("Update failed");
-      setBlogs((prev) => prev.map((b) => (b.id === updatedBlog.id ? { ...b, ...updatedBlog } : b)));
-      setIsEditModalVisible(false);
-      setEditBlogData(null);
-    } catch {
-      alert("Failed to update blog post. Please try again.");
-    }
-  };
-
-  const recentBlogs = blogs.slice(0, 5);
-
-  // Submissions / Responses
-  const [submissions, setSubmissions] = useState<Lead[]>([]);
-  const [responses, setResponses] = useState<any[]>([]);
-  const [subsLoading, setSubsLoading] = useState<boolean>(true);
-  const [subsError, setSubsError] = useState<string | null>(null);
-
+  // ---------- Fetch Submissions & Responses ----------
   useEffect(() => {
     const fetchData = async () => {
       setSubsLoading(true);
       setSubsError(null);
       try {
         const [subRes, respRes] = await Promise.all([
-          axios.get<Lead[]>("/api/admin/leads/submissions"),
-          axios.get<any[]>("/api/admin/leads/responses"),
+          fetch("/api/admin/leads/submissions"),
+          fetch("/api/admin/leads/responses"),
         ]);
-        setSubmissions(subRes.data ?? []);
-        setResponses(respRes.data?.slice(0, 5) ?? []);
+
+        if (!subRes.ok || !respRes.ok) throw new Error("Failed submissions/responses");
+
+        const [subData, respData] = await Promise.all([subRes.json(), respRes.json()]);
+        setSubmissions(subData ?? []);
+        setResponses((respData ?? []).slice(0, 5));
+        setSubsPage(1); // নতুন ডাটা এলে page reset
       } catch (e) {
         console.error("Failed to load submissions/responses", e);
         setSubsError("Failed to load submissions.");
@@ -248,7 +211,20 @@ const AdminDashboard: React.FC = () => {
     fetchData();
   }, []);
 
-  const recentSubmissions = submissions.slice(0, 5);
+  // ---------- Derived / memoized data ----------
+
+  const recentBlogs = useMemo(() => blogs.slice(0, 5), [blogs]);
+  const recentSubmissions = useMemo(() => submissions.slice(0, 5), [submissions]);
+
+  const weeklyPerformanceData = useMemo(
+    () =>
+      stats.dailyLeads.map((lead: any, index: number) => ({
+        date: lead.date,
+        leads: lead.count,
+        responses: (stats.dailyResponses[index] as any)?.count || 0,
+      })),
+    [stats.dailyLeads, stats.dailyResponses]
+  );
 
   // KPI (IP-based)
   const {
@@ -305,9 +281,8 @@ const AdminDashboard: React.FC = () => {
     };
   }, [submissions, blogs]);
 
-  // Visitor Distribution (dynamic): Top 10 states by unique IP
+  // Visitor Distribution (Top 10 states by unique IP)
   const visitorDistribution = useMemo(() => {
-    // unique IP per state
     const map = new Map<string, Set<string>>();
     for (const l of submissions) {
       const stateLabel =
@@ -324,6 +299,78 @@ const AdminDashboard: React.FC = () => {
     rows.sort((a, b) => b.count - a.count);
     return rows.slice(0, 10);
   }, [submissions]);
+
+  // Submissions table pagination (big performance win)
+  const totalSubsPages = useMemo(
+    () => Math.max(1, Math.ceil(submissions.length / SUBS_PAGE_SIZE)),
+    [submissions.length]
+  );
+
+  const pagedSubmissions = useMemo(
+    () =>
+      submissions.slice(
+        (subsPage - 1) * SUBS_PAGE_SIZE,
+        subsPage * SUBS_PAGE_SIZE
+      ),
+    [submissions, subsPage]
+  );
+
+  const handleSubsPageChange = (dir: "prev" | "next") => {
+    setSubsPage((prev) => {
+      if (dir === "prev") return Math.max(1, prev - 1);
+      return Math.min(totalSubsPages, prev + 1);
+    });
+  };
+
+  // ---------- Blog actions ----------
+  const handleDeleteClick = async (id: number) => {
+    if (!window.confirm("Are you sure you want to delete this blog post?")) return;
+    try {
+      const resp = await fetch("/api/blogpost", {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id }),
+      });
+      if (!resp.ok) throw new Error("Delete failed");
+      setBlogs((prev) => prev.filter((b) => b.id !== id));
+      setTotalBlogs((t) => Math.max(0, t - 1));
+    } catch {
+      alert("Failed to delete blog post. Please try again.");
+    }
+  };
+
+  const handleEditClick = (blog: Blog) => {
+    setEditBlogData(blog);
+    setIsEditModalVisible(true);
+  };
+
+  const handleEditClose = () => {
+    setIsEditModalVisible(false);
+    setEditBlogData(null);
+  };
+
+  const handleEditSave = async (updatedBlog: Blog) => {
+    try {
+      const resp = await fetch("/api/blogpost", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          id: updatedBlog.id,
+          post_title: updatedBlog.post_title,
+          post_status: updatedBlog.post_status,
+        }),
+      });
+      if (!resp.ok) throw new Error("Update failed");
+      setBlogs((prev) => prev.map((b) => (b.id === updatedBlog.id ? { ...b, ...updatedBlog } : b)));
+      setIsEditModalVisible(false);
+      setEditBlogData(null);
+    } catch {
+      alert("Failed to update blog post. Please try again.");
+    }
+  };
+
+  const fmt = (v: any) => (v === null || v === undefined || v === "" ? "—" : String(v));
+  const fmtDate = (iso?: string | null) => (iso ? new Date(iso).toLocaleDateString() : "—");
 
   return (
     <div className="p-6 bg-gray-50 min-h-screen">
@@ -375,11 +422,7 @@ const AdminDashboard: React.FC = () => {
           </div>
           <ResponsiveContainer width="100%" height={300}>
             <ComposedChart
-              data={stats.dailyLeads.map((lead: any, index: number) => ({
-                date: lead.date,
-                leads: lead.count,
-                responses: (stats.dailyResponses[index] as any)?.count || 0,
-              }))}
+              data={weeklyPerformanceData}
               margin={{ top: 10, right: 10, left: 0, bottom: 10 }}
             >
               <defs>
@@ -400,19 +443,27 @@ const AdminDashboard: React.FC = () => {
                   backgroundColor: "#fff",
                   border: "none",
                   borderRadius: "8px",
-                  boxShadow: "0 4px 6px -1px rgba(0,0,0,0.1), 0 2px 4px -1px rgba(0,0,0,0.06)",
+                  boxShadow:
+                    "0 4px 6px -1px rgba(0,0,0,0.1), 0 2px 4px -1px rgba(0,0,0,0.06)",
                 }}
                 labelStyle={{ color: "#374151", fontWeight: "bold" }}
                 itemStyle={{ fontSize: "14px", color: "#4b5563" }}
               />
               <Legend verticalAlign="top" height={36} iconType="circle" wrapperStyle={{ paddingBottom: "16px" }} />
               <Bar dataKey="leads" fill="url(#leadGradient)" radius={[4, 4, 0, 0]} name="Submissions" barSize={24} />
-              <Area type="monotone" dataKey="responses" fill="url(#responseGradient)" stroke="#10b981" strokeWidth={2} name="Responses" />
+              <Area
+                type="monotone"
+                dataKey="responses"
+                fill="url(#responseGradient)"
+                stroke="#10b981"
+                strokeWidth={2}
+                name="Responses"
+              />
             </ComposedChart>
           </ResponsiveContainer>
         </div>
 
-        {/* Visitor Distribution (Dynamic) */}
+        {/* Visitor Distribution */}
         <div className="bg-white rounded-xl shadow-sm p-5">
           <h3 className="text-lg font-semibold text-gray-800 mb-4 flex items-center gap-2">
             <FaGlobeAmericas className="text-indigo-500" /> Visitor Distribution (Top 10 States by Unique IP)
@@ -444,7 +495,8 @@ const AdminDashboard: React.FC = () => {
                       backgroundColor: "#fff",
                       border: "none",
                       borderRadius: "8px",
-                      boxShadow: "0 4px 6px -1px rgba(0,0,0,0.1), 0 2px 4px -1px rgba(0,0,0,0.06)",
+                      boxShadow:
+                        "0 4px 6px -1px rgba(0,0,0,0.1), 0 2px 4px -1px rgba(0,0,0,0.06)",
                     }}
                     labelStyle={{ color: "#374151", fontWeight: "bold" }}
                     itemStyle={{ fontSize: "14px", color: "#4b5563" }}
@@ -464,7 +516,9 @@ const AdminDashboard: React.FC = () => {
         <div className="bg-white rounded-xl shadow-sm overflow-hidden">
           <div className="p-5 border-b border-gray-200 flex justify-between items-center">
             <h2 className="text-lg font-semibold text-gray-800">Recent Lead Submissions</h2>
-            <span className="text-xs bg-blue-100 text-blue-800 py-1 px-2 rounded-full">{recentSubmissions.length}</span>
+            <span className="text-xs bg-blue-100 text-blue-800 py-1 px-2 rounded-full">
+              {recentSubmissions.length}
+            </span>
           </div>
           <div className="overflow-x-auto">
             <table className="w-full">
@@ -504,7 +558,9 @@ const AdminDashboard: React.FC = () => {
         <div className="bg-white rounded-xl shadow-sm overflow-hidden">
           <div className="p-5 border-b border-gray-200 flex justify-between items-center">
             <h2 className="text-lg font-semibold text-gray-800">Recent Lead Responses</h2>
-            <span className="text-xs bg-green-100 text-green-800 py-1 px-2 rounded-full">{responses.length}</span>
+            <span className="text-xs bg-green-100 text-green-800 py-1 px-2 rounded-full">
+              {responses.length}
+            </span>
           </div>
           <div className="overflow-x-auto">
             <table className="w-full">
@@ -521,7 +577,9 @@ const AdminDashboard: React.FC = () => {
                     <tr key={index} className="hover:bg-gray-50 transition-colors">
                       <td className="px-5 py-4 whitespace-nowrap">#{leadId}</td>
                       <td className="px-5 py-4 whitespace-nowrap">
-                        <span className="px-2 py-1 bg-green-100 text-green-800 text-xs rounded-full">Responded</span>
+                        <span className="px-2 py-1 bg-green-100 text-green-800 text-xs rounded-full">
+                          Responded
+                        </span>
                       </td>
                       <td className="px-5 py-4 whitespace-nowrap">—</td>
                     </tr>
@@ -556,33 +614,31 @@ const AdminDashboard: React.FC = () => {
           ) : submissions.length === 0 ? (
             <div className="p-6 text-center text-gray-500">No submissions found.</div>
           ) : (
-            <div className="overflow-x-auto">
-              <table className="w-full text-sm">
-                <thead className="bg-gray-50 text-xs uppercase text-gray-500">
-                  <tr>
-                    <th className="px-4 py-3 text-left">ID</th>
-                    <th className="px-4 py-3 text-left">Name</th>
-                    <th className="px-4 py-3 text-left">Email</th>
-                    <th className="px-4 py-3 text-left">Phone</th>
-                    <th className="px-4 py-3 text-left">From State</th>
-                    <th className="px-4 py-3 text-left">From Code</th>
-                    <th className="px-4 py-3 text-left">From City</th>
-                    <th className="px-4 py-3 text-left">From ZIP</th>
-                    <th className="px-4 py-3 text-left">To State</th>
-                    <th className="px-4 py-3 text-left">To Code</th>
-                    <th className="px-4 py-3 text-left">To City</th>
-                    <th className="px-4 py-3 text-left">To ZIP</th>
-                    <th className="px-4 py-3 text-left">Move Date</th>
-                    <th className="px-4 py-3 text-left">Move Size</th>
-                    <th className="px-4 py-3 text-left">IP</th>
-                    <th className="px-4 py-3 text-left">Created</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-gray-200">
-                  {submissions.map((lead) => {
-                    const fmt = (v: any) => (v === null || v === undefined || v === "" ? "—" : String(v));
-                    const fmtDate = (iso?: string | null) => (iso ? new Date(iso).toLocaleDateString() : "—");
-                    return (
+            <>
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead className="bg-gray-50 text-xs uppercase text-gray-500">
+                    <tr>
+                      <th className="px-4 py-3 text-left">ID</th>
+                      <th className="px-4 py-3 text-left">Name</th>
+                      <th className="px-4 py-3 text-left">Email</th>
+                      <th className="px-4 py-3 text-left">Phone</th>
+                      <th className="px-4 py-3 text-left">From State</th>
+                      <th className="px-4 py-3 text-left">From Code</th>
+                      <th className="px-4 py-3 text-left">From City</th>
+                      <th className="px-4 py-3 text-left">From ZIP</th>
+                      <th className="px-4 py-3 text-left">To State</th>
+                      <th className="px-4 py-3 text-left">To Code</th>
+                      <th className="px-4 py-3 text-left">To City</th>
+                      <th className="px-4 py-3 text-left">To ZIP</th>
+                      <th className="px-4 py-3 text-left">Move Date</th>
+                      <th className="px-4 py-3 text-left">Move Size</th>
+                      <th className="px-4 py-3 text-left">IP</th>
+                      <th className="px-4 py-3 text-left">Created</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-gray-200">
+                    {pagedSubmissions.map((lead) => (
                       <tr key={lead.id} className="hover:bg-gray-50 transition-colors">
                         <td className="px-4 py-3 whitespace-nowrap">#{lead.id}</td>
                         <td className="px-4 py-3 whitespace-nowrap">
@@ -603,11 +659,51 @@ const AdminDashboard: React.FC = () => {
                         <td className="px-4 py-3 whitespace-nowrap">{fmt(lead.fromIp)}</td>
                         <td className="px-4 py-3 whitespace-nowrap">{fmtDate(lead.createdAt)}</td>
                       </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-            </div>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+
+              {/* Pagination controls for submissions */}
+              <div className="flex items-center justify-between px-4 py-3 border-t border-gray-200 text-xs text-gray-600">
+                <div>
+                  Showing{" "}
+                  <span className="font-semibold">
+                    {(subsPage - 1) * SUBS_PAGE_SIZE + 1}-
+                    {Math.min(subsPage * SUBS_PAGE_SIZE, submissions.length)}
+                  </span>{" "}
+                  of <span className="font-semibold">{submissions.length}</span> submissions
+                </div>
+                <div className="flex gap-2">
+                  <button
+                    onClick={() => handleSubsPageChange("prev")}
+                    disabled={subsPage === 1}
+                    className={`px-3 py-1 rounded border text-xs ${
+                      subsPage === 1
+                        ? "border-gray-200 text-gray-400 cursor-not-allowed"
+                        : "border-gray-300 text-gray-700 hover:bg-gray-50"
+                    }`}
+                  >
+                    Previous
+                  </button>
+                  <span>
+                    Page <span className="font-semibold">{subsPage}</span> of{" "}
+                    <span className="font-semibold">{totalSubsPages}</span>
+                  </span>
+                  <button
+                    onClick={() => handleSubsPageChange("next")}
+                    disabled={subsPage === totalSubsPages}
+                    className={`px-3 py-1 rounded border text-xs ${
+                      subsPage === totalSubsPages
+                        ? "border-gray-200 text-gray-400 cursor-not-allowed"
+                        : "border-gray-300 text-gray-700 hover:bg-gray-50"
+                    }`}
+                  >
+                    Next
+                  </button>
+                </div>
+              </div>
+            </>
           )}
         </div>
       </section>
