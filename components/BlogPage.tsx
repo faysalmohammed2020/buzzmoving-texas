@@ -34,16 +34,13 @@ const extractFirstImage = (htmlContent: string): string => {
     const baseURL =
       process.env.NEXT_PUBLIC_BASE_URL || window.location.origin;
 
-    // /public/... → /...
     if (src.startsWith("/public/")) {
       src = src.replace(/^\/public\//, "/");
     }
 
     if (src.startsWith("/")) {
-      // relative path → prepend base
       src = `${baseURL}${src}`;
     } else {
-      // absolute or relative-like → resolve against base
       const u = new URL(src, baseURL);
       const cleanPath = u.pathname.replace(/^\/public\//, "/");
       src = `${baseURL}${cleanPath}${u.search}${u.hash}`;
@@ -54,6 +51,115 @@ const extractFirstImage = (htmlContent: string): string => {
     return fallback;
   }
 };
+
+// 🔹 Skeleton Card (loading state-এর জন্য)
+const BlogCardSkeleton: React.FC = () => (
+  <div className="bg-white rounded-2xl overflow-hidden shadow-xl border border-gray-100 animate-pulse h-full flex flex-col">
+    <div className="relative w-full h-48 bg-gray-200" />
+    <div className="p-6 flex flex-col flex-grow gap-3">
+      <div className="h-3 w-20 bg-gray-200 rounded-full" />
+      <div className="h-6 w-3/4 bg-gray-200 rounded-md" />
+      <div className="space-y-2 mt-2">
+        <div className="h-3 w-full bg-gray-200 rounded-md" />
+        <div className="h-3 w-5/6 bg-gray-200 rounded-md" />
+        <div className="h-3 w-2/3 bg-gray-200 rounded-md" />
+      </div>
+      <div className="mt-auto pt-4 border-t border-gray-100 flex items-center justify-between">
+        <div className="h-3 w-24 bg-gray-200 rounded-full" />
+        <div className="h-3 w-16 bg-gray-200 rounded-full" />
+      </div>
+    </div>
+  </div>
+);
+
+// 🔹 আলাদা BlogCard (memoized → re-render কম)
+const BlogCard: React.FC<{ post: Blog }> = React.memo(({ post }) => {
+  const postDate = useMemo(
+    () =>
+      new Date(post.createdAt).toLocaleDateString("en-US", {
+        year: "numeric",
+        month: "short",
+        day: "numeric",
+      }),
+    [post.createdAt]
+  );
+
+  return (
+    <Link
+      href={`/blog/${post.id}`}
+      passHref
+      className="group"
+    >
+      <div className="bg-white rounded-2xl overflow-hidden shadow-xl hover:shadow-2xl transition-all duration-300 transform group-hover:-translate-y-1 h-full flex flex-col border border-gray-100">
+        {/* Image */}
+        <div className="relative w-full h-48 overflow-hidden">
+          <Image
+            src={post.imageUrl}
+            alt={post.post_title}
+            fill
+            loading="lazy"
+            style={{ objectFit: "cover" }}
+            className="group-hover:scale-105 transition-transform duration-500 ease-in-out"
+            sizes="(max-width: 768px) 100vw, (max-width: 1200px) 50vw, 33vw"
+          />
+        </div>
+
+        {/* Content */}
+        <div className="p-6 flex flex-col flex-grow">
+          <span className="text-xs font-semibold uppercase text-indigo-600 tracking-widest mb-2">
+            {post.post_category}
+          </span>
+
+          <h2 className="text-2xl font-bold text-gray-900 leading-tight mb-3 group-hover:text-indigo-700 transition-colors">
+            {post.post_title}
+          </h2>
+
+          <div className="flex-grow">
+            <p className="text-gray-600 line-clamp-3">
+              {post.excerpt}...
+            </p>
+          </div>
+
+          <div className="mt-5 pt-4 border-t border-gray-100 flex items-center justify-between text-sm text-gray-500">
+            <span className="flex items-center gap-1">
+              <svg
+                className="w-4 h-4 text-indigo-500"
+                fill="none"
+                viewBox="0 0 24 24"
+                stroke="currentColor"
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth={2}
+                  d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"
+                />
+              </svg>
+              {postDate}
+            </span>
+            <span className="flex items-center gap-1">
+              <svg
+                className="w-4 h-4 text-indigo-500"
+                fill="none"
+                viewBox="0 0 24 24"
+                stroke="currentColor"
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth={2}
+                  d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"
+                />
+              </svg>
+              {post.readTime} min read
+            </span>
+          </div>
+        </div>
+      </div>
+    </Link>
+  );
+});
+BlogCard.displayName = "BlogCard";
 
 const BlogPage: React.FC = () => {
   const [isLoading, setIsLoading] = useState<boolean>(true);
@@ -79,13 +185,14 @@ const BlogPage: React.FC = () => {
               ? item.post_content.text
               : String(item.post_content || "");
 
-          // plain text (excerpt/read time এর জন্য)
-          const plainText = rawContent.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim();
+          const plainText = rawContent
+            .replace(/<[^>]+>/g, " ")
+            .replace(/\s+/g, " ")
+            .trim();
           const wordCount = plainText ? plainText.split(/\s+/).length : 0;
           const readTime = Math.max(1, Math.ceil(wordCount / 200));
           const excerpt = plainText.slice(0, 150);
 
-          // image URL একবারেই বের করি
           const imageUrl = extractFirstImage(rawContent);
 
           return {
@@ -124,10 +231,9 @@ const BlogPage: React.FC = () => {
     });
   }, [blogs]);
 
-  // --- Pagination Logic (memoized on data + page) ---
   const totalPages = useMemo(
     () => Math.ceil(prioritizedBlogs.length / postsPerPage) || 1,
-    [prioritizedBlogs.length]
+    [prioritizedBlogs.length, postsPerPage]
   );
 
   const currentPosts = useMemo(() => {
@@ -145,7 +251,6 @@ const BlogPage: React.FC = () => {
   };
 
   const getPageNumbers = () => {
-    const pages: (number | string)[] = [];
     const maxVisiblePages = 3;
 
     if (totalPages <= 6) {
@@ -169,20 +274,26 @@ const BlogPage: React.FC = () => {
     }
   };
 
-  // --- Render Section ---
+  // --- Loading State (Skeleton) ---
   if (isLoading) {
     return (
-      <div className="min-h-[60vh] grid place-items-center bg-gray-50">
-        <div className="flex flex-col items-center gap-4">
-          <div className="h-12 w-12 rounded-full border-4 border-indigo-600 border-t-transparent animate-spin" />
-          <p className="text-lg text-gray-700 font-medium">
-            Loading All Blogs...
-          </p>
+      <div className="bg-gray-50 min-h-screen py-16">
+        <div className="container mx-auto px-4 max-w-7xl">
+          <div className="text-center mb-12">
+            <div className="h-10 w-52 bg-gray-200 rounded-lg mx-auto mb-3 animate-pulse" />
+            <div className="h-4 w-80 bg-gray-200 rounded mx-auto animate-pulse" />
+          </div>
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-x-8 gap-y-12">
+            {Array.from({ length: 6 }).map((_, i) => (
+              <BlogCardSkeleton key={i} />
+            ))}
+          </div>
         </div>
       </div>
     );
   }
 
+  // --- Error State ---
   if (error) {
     return (
       <div className="min-h-[60vh] grid place-items-center bg-red-50">
@@ -209,87 +320,9 @@ const BlogPage: React.FC = () => {
 
         {/* Blog Grid */}
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-x-8 gap-y-12">
-          {currentPosts.map((post) => {
-            const postDate = new Date(post.createdAt).toLocaleDateString(
-              "en-US",
-              { year: "numeric", month: "short", day: "numeric" }
-            );
-
-            return (
-              <Link
-                key={post.id}
-                href={`/blog/${post.id}`}
-                passHref
-                className="group"
-              >
-                <div className="bg-white rounded-2xl overflow-hidden shadow-xl hover:shadow-2xl transition-all duration-300 transform group-hover:-translate-y-1 h-full flex flex-col border border-gray-100">
-                  {/* Image */}
-                  <div className="relative w-full h-48 overflow-hidden">
-                    <Image
-                      src={post.imageUrl}
-                      alt={post.post_title}
-                      fill
-                      style={{ objectFit: "cover" }}
-                      className="group-hover:scale-105 transition-transform duration-500 ease-in-out"
-                      sizes="(max-width: 768px) 100vw, (max-width: 1200px) 50vw, 33vw"
-                    />
-                  </div>
-
-                  {/* Content */}
-                  <div className="p-6 flex flex-col flex-grow">
-                    <span className="text-xs font-semibold uppercase text-indigo-600 tracking-widest mb-2">
-                      {post.post_category}
-                    </span>
-
-                    <h2 className="text-2xl font-bold text-gray-900 leading-tight mb-3 group-hover:text-indigo-700 transition-colors">
-                      {post.post_title}
-                    </h2>
-
-                    <div className="flex-grow">
-                      <p className="text-gray-600 line-clamp-3">
-                        {post.excerpt}...
-                      </p>
-                    </div>
-
-                    <div className="mt-5 pt-4 border-t border-gray-100 flex items-center justify-between text-sm text-gray-500">
-                      <span className="flex items-center gap-1">
-                        <svg
-                          className="w-4 h-4 text-indigo-500"
-                          fill="none"
-                          viewBox="0 0 24 24"
-                          stroke="currentColor"
-                        >
-                          <path
-                            strokeLinecap="round"
-                            strokeLinejoin="round"
-                            strokeWidth={2}
-                            d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"
-                          />
-                        </svg>
-                        {postDate}
-                      </span>
-                      <span className="flex items-center gap-1">
-                        <svg
-                          className="w-4 h-4 text-indigo-500"
-                          fill="none"
-                          viewBox="0 0 24 24"
-                          stroke="currentColor"
-                        >
-                          <path
-                            strokeLinecap="round"
-                            strokeLinejoin="round"
-                            strokeWidth={2}
-                            d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"
-                          />
-                        </svg>
-                        {post.readTime} min read
-                      </span>
-                    </div>
-                  </div>
-                </div>
-              </Link>
-            );
-          })}
+          {currentPosts.map((post) => (
+            <BlogCard key={post.id} post={post} />
+          ))}
         </div>
 
         {/* Pagination */}
