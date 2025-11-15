@@ -1,5 +1,5 @@
 "use client";
-import React, { useState, useEffect, useMemo } from "react";
+import React, { useState, useEffect, useMemo, useRef } from "react";
 import {
   BarChart,
   Bar,
@@ -75,6 +75,8 @@ type Lead = {
   createdAt: string;
 };
 
+type TrendInfo = { value: string; isPositive: boolean };
+
 const normalizeCommentStatus = (val: unknown) => {
   const s = String(val ?? "").toLowerCase();
   return s === "open" || s === "closed" ? s : "open";
@@ -101,7 +103,7 @@ function addMonths(d: Date, m: number) {
 function addDays(d: Date, n: number) {
   return new Date(d.getTime() + n * 24 * 60 * 60 * 1000);
 }
-function pctChange(curr: number, prev: number): { value: string; isPositive: boolean } {
+function pctChange(curr: number, prev: number): TrendInfo {
   if (prev <= 0) {
     if (curr <= 0) return { value: "0%", isPositive: false };
     return { value: "+100%", isPositive: true };
@@ -112,12 +114,32 @@ function pctChange(curr: number, prev: number): { value: string; isPositive: boo
 }
 
 const SUBS_PAGE_SIZE = 50; // একসাথে ৫০টা row দেখাই → huge data তেও fast render
+const numberFormatter = new Intl.NumberFormat();
+
+// ---------- Simple skeleton helpers ----------
+const SkeletonBox: React.FC<{ className?: string }> = ({ className = "" }) => (
+  <div className={`animate-pulse bg-gray-200 rounded ${className}`} />
+);
+
+const TableSkeleton: React.FC<{ rows?: number; cols?: number }> = ({ rows = 5, cols = 4 }) => (
+  <div className="p-4">
+    <div className="space-y-3">
+      {Array.from({ length: rows }).map((_, i) => (
+        <div key={i} className="grid gap-3" style={{ gridTemplateColumns: `repeat(${cols}, minmax(0, 1fr))` }}>
+          {Array.from({ length: cols }).map((__, j) => (
+            <SkeletonBox key={j} className="h-4" />
+          ))}
+        </div>
+      ))}
+    </div>
+  </div>
+);
 
 const AdminDashboard: React.FC = () => {
   const [blogs, setBlogs] = useState<Blog[]>([]);
   const [totalBlogs, setTotalBlogs] = useState<number>(0);
-  const [isLoading, setIsLoading] = useState<boolean>(true);
-  const [error, setError] = useState<string | null>(null);
+  const [isLoadingBlogs, setIsLoadingBlogs] = useState<boolean>(true);
+  const [errorBlogs, setErrorBlogs] = useState<string | null>(null);
 
   const [isEditModalVisible, setIsEditModalVisible] = useState<boolean>(false);
   const [editBlogData, setEditBlogData] = useState<Blog | null>(null);
@@ -125,6 +147,7 @@ const AdminDashboard: React.FC = () => {
   const [stats, setStats] = useState({ dailyLeads: [] as any[], dailyResponses: [] as any[] });
   const [totalLeads, setTotalLeads] = useState(0);
   const [totalResponses, setTotalResponses] = useState(0);
+  const [statsLoading, setStatsLoading] = useState<boolean>(true);
 
   // Submissions / responses
   const [submissions, setSubmissions] = useState<Lead[]>([]);
@@ -133,11 +156,41 @@ const AdminDashboard: React.FC = () => {
   const [subsError, setSubsError] = useState<string | null>(null);
   const [subsPage, setSubsPage] = useState(1);
 
+  // Lazy-load big submissions table when scrolled into view
+  const [showFullSubs, setShowFullSubs] = useState(false);
+  const fullSubsRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    if (showFullSubs) return;
+
+    const node = fullSubsRef.current;
+    if (!node) return;
+
+    if (!(typeof window !== "undefined" && "IntersectionObserver" in window)) {
+      setShowFullSubs(true);
+      return;
+    }
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        const [entry] = entries;
+        if (entry.isIntersecting) {
+          setShowFullSubs(true);
+          observer.disconnect();
+        }
+      },
+      { rootMargin: "100px" }
+    );
+
+    observer.observe(node);
+    return () => observer.disconnect();
+  }, [showFullSubs]);
+
   // ---------- Fetch Blogs ----------
   useEffect(() => {
     const fetchBlogs = async () => {
-      setIsLoading(true);
-      setError(null);
+      setIsLoadingBlogs(true);
+      setErrorBlogs(null);
       try {
         const res = await fetch("/api/blogpost", { cache: "no-store" });
         if (!res.ok) throw new Error("Failed to fetch blogs");
@@ -158,9 +211,9 @@ const AdminDashboard: React.FC = () => {
         setTotalBlogs(total);
       } catch (err) {
         console.error(err);
-        setError("Failed to fetch blogs. Please try again later.");
+        setErrorBlogs("Failed to fetch blogs. Please try again later.");
       } finally {
-        setIsLoading(false);
+        setIsLoadingBlogs(false);
       }
     };
 
@@ -171,7 +224,8 @@ const AdminDashboard: React.FC = () => {
   useEffect(() => {
     const fetchStats = async () => {
       try {
-        const res = await fetch("/api/admin/leads/stats");
+        setStatsLoading(true);
+        const res = await fetch("/api/admin/leads/stats", { cache: "no-store" });
         if (!res.ok) throw new Error("Failed stats");
         const data = await res.json();
         setStats({ dailyLeads: data.dailyLeads ?? [], dailyResponses: data.dailyResponses ?? [] });
@@ -179,6 +233,8 @@ const AdminDashboard: React.FC = () => {
         setTotalResponses(data.totalResponses ?? 0);
       } catch (error) {
         console.error("Failed to fetch stats", error);
+      } finally {
+        setStatsLoading(false);
       }
     };
     fetchStats();
@@ -191,8 +247,8 @@ const AdminDashboard: React.FC = () => {
       setSubsError(null);
       try {
         const [subRes, respRes] = await Promise.all([
-          fetch("/api/admin/leads/submissions"),
-          fetch("/api/admin/leads/responses"),
+          fetch("/api/admin/leads/submissions", { cache: "no-store" }),
+          fetch("/api/admin/leads/responses", { cache: "no-store" }),
         ]);
 
         if (!subRes.ok || !respRes.ok) throw new Error("Failed submissions/responses");
@@ -378,24 +434,27 @@ const AdminDashboard: React.FC = () => {
       <section className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-5 mb-8">
         <StatCard
           title="Total Visitors"
-          value={Intl.NumberFormat().format(totalVisitorsValue)}
+          value={numberFormatter.format(totalVisitorsValue)}
           trend={totalVisitorsTrend}
           icon={<FaEye className="text-xl text-blue-500" />}
           color="bg-blue-100"
+          loading={subsLoading}
         />
         <StatCard
           title="This Month (Unique IPs)"
-          value={Intl.NumberFormat().format(thisMonthVisitorsValue)}
+          value={numberFormatter.format(thisMonthVisitorsValue)}
           trend={thisMonthVisitorsTrend}
           icon={<FaChartLine className="text-xl text-purple-500" />}
           color="bg-purple-100"
+          loading={subsLoading}
         />
         <StatCard
           title="Total Blogs"
-          value={isLoading ? "…" : totalBlogs}
+          value={isLoadingBlogs ? "…" : totalBlogs}
           trend={totalBlogsTrend}
           icon={<FaBlog className="text-xl text-green-500" />}
           color="bg-green-100"
+          loading={isLoadingBlogs}
         />
         <StatCard
           title="Total Submissions"
@@ -403,6 +462,7 @@ const AdminDashboard: React.FC = () => {
           trend={totalSubmissionsTrend}
           icon={<FaFileAlt className="text-xl text-amber-500" />}
           color="bg-amber-100"
+          loading={statsLoading}
         />
       </section>
 
@@ -420,47 +480,51 @@ const AdminDashboard: React.FC = () => {
               <option>Last 90 days</option>
             </select>
           </div>
-          <ResponsiveContainer width="100%" height={300}>
-            <ComposedChart
-              data={weeklyPerformanceData}
-              margin={{ top: 10, right: 10, left: 0, bottom: 10 }}
-            >
-              <defs>
-                <linearGradient id="leadGradient" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="5%" stopColor="#6366f1" stopOpacity={0.9} />
-                  <stop offset="95%" stopColor="#6366f1" stopOpacity={0.1} />
-                </linearGradient>
-                <linearGradient id="responseGradient" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="5%" stopColor="#10b981" stopOpacity={0.8} />
-                  <stop offset="95%" stopColor="#10b981" stopOpacity={0.1} />
-                </linearGradient>
-              </defs>
-              <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f3f4f6" />
-              <XAxis dataKey="date" tick={{ fontSize: 12, fill: "#6b7280" }} axisLine={false} tickLine={false} />
-              <YAxis allowDecimals={false} tick={{ fontSize: 12, fill: "#6b7280" }} axisLine={false} tickLine={false} />
-              <Tooltip
-                contentStyle={{
-                  backgroundColor: "#fff",
-                  border: "none",
-                  borderRadius: "8px",
-                  boxShadow:
-                    "0 4px 6px -1px rgba(0,0,0,0.1), 0 2px 4px -1px rgba(0,0,0,0.06)",
-                }}
-                labelStyle={{ color: "#374151", fontWeight: "bold" }}
-                itemStyle={{ fontSize: "14px", color: "#4b5563" }}
-              />
-              <Legend verticalAlign="top" height={36} iconType="circle" wrapperStyle={{ paddingBottom: "16px" }} />
-              <Bar dataKey="leads" fill="url(#leadGradient)" radius={[4, 4, 0, 0]} name="Submissions" barSize={24} />
-              <Area
-                type="monotone"
-                dataKey="responses"
-                fill="url(#responseGradient)"
-                stroke="#10b981"
-                strokeWidth={2}
-                name="Responses"
-              />
-            </ComposedChart>
-          </ResponsiveContainer>
+          {statsLoading ? (
+            <SkeletonBox className="h-[300px] w-full" />
+          ) : (
+            <ResponsiveContainer width="100%" height={300}>
+              <ComposedChart
+                data={weeklyPerformanceData}
+                margin={{ top: 10, right: 10, left: 0, bottom: 10 }}
+              >
+                <defs>
+                  <linearGradient id="leadGradient" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="5%" stopColor="#6366f1" stopOpacity={0.9} />
+                    <stop offset="95%" stopColor="#6366f1" stopOpacity={0.1} />
+                  </linearGradient>
+                  <linearGradient id="responseGradient" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="5%" stopColor="#10b981" stopOpacity={0.8} />
+                    <stop offset="95%" stopColor="#10b981" stopOpacity={0.1} />
+                  </linearGradient>
+                </defs>
+                <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f3f4f6" />
+                <XAxis dataKey="date" tick={{ fontSize: 12, fill: "#6b7280" }} axisLine={false} tickLine={false} />
+                <YAxis allowDecimals={false} tick={{ fontSize: 12, fill: "#6b7280" }} axisLine={false} tickLine={false} />
+                <Tooltip
+                  contentStyle={{
+                    backgroundColor: "#fff",
+                    border: "none",
+                    borderRadius: "8px",
+                    boxShadow:
+                      "0 4px 6px -1px rgba(0,0,0,0.1), 0 2px 4px -1px rgba(0,0,0,0.06)",
+                  }}
+                  labelStyle={{ color: "#374151", fontWeight: "bold" }}
+                  itemStyle={{ fontSize: "14px", color: "#4b5563" }}
+                />
+                <Legend verticalAlign="top" height={36} iconType="circle" wrapperStyle={{ paddingBottom: "16px" }} />
+                <Bar dataKey="leads" fill="url(#leadGradient)" radius={[4, 4, 0, 0]} name="Submissions" barSize={24} />
+                <Area
+                  type="monotone"
+                  dataKey="responses"
+                  fill="url(#responseGradient)"
+                  stroke="#10b981"
+                  strokeWidth={2}
+                  name="Responses"
+                />
+              </ComposedChart>
+            </ResponsiveContainer>
+          )}
         </div>
 
         {/* Visitor Distribution */}
@@ -470,7 +534,7 @@ const AdminDashboard: React.FC = () => {
           </h3>
           <div className="h-[300px]">
             {subsLoading ? (
-              <div className="h-full flex items-center justify-center text-gray-600">Loading…</div>
+              <SkeletonBox className="h-full w-full" />
             ) : subsError ? (
               <div className="h-full flex items-center justify-center text-red-500">{subsError}</div>
             ) : visitorDistribution.length === 0 ? (
@@ -521,36 +585,40 @@ const AdminDashboard: React.FC = () => {
             </span>
           </div>
           <div className="overflow-x-auto">
-            <table className="w-full">
-              <thead className="bg-gray-50 text-xs uppercase text-gray-500">
-                <tr>
-                  <th className="px-5 py-3 text-left">Name</th>
-                  <th className="px-5 py-3 text-left">Email</th>
-                  <th className="px-5 py-3 text-left">Date</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-gray-200">
-                {recentSubmissions.length > 0 ? (
-                  recentSubmissions.map((lead) => (
-                    <tr key={lead.id} className="hover:bg-gray-50 transition-colors">
-                      <td className="px-5 py-4 whitespace-nowrap">
-                        {lead.firstName} {lead.lastName}
-                      </td>
-                      <td className="px-5 py-4 whitespace-nowrap">{lead.email || "—"}</td>
-                      <td className="px-5 py-4 whitespace-nowrap">
-                        {new Date(lead.createdAt).toLocaleDateString()}
+            {subsLoading ? (
+              <TableSkeleton rows={5} cols={3} />
+            ) : (
+              <table className="w-full">
+                <thead className="bg-gray-50 text-xs uppercase text-gray-500">
+                  <tr>
+                    <th className="px-5 py-3 text-left">Name</th>
+                    <th className="px-5 py-3 text-left">Email</th>
+                    <th className="px-5 py-3 text-left">Date</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-gray-200">
+                  {recentSubmissions.length > 0 ? (
+                    recentSubmissions.map((lead) => (
+                      <tr key={lead.id} className="hover:bg-gray-50 transition-colors">
+                        <td className="px-5 py-4 whitespace-nowrap">
+                          {lead.firstName} {lead.lastName}
+                        </td>
+                        <td className="px-5 py-4 whitespace-nowrap">{lead.email || "—"}</td>
+                        <td className="px-5 py-4 whitespace-nowrap">
+                          {new Date(lead.createdAt).toLocaleDateString()}
+                        </td>
+                      </tr>
+                    ))
+                  ) : (
+                    <tr>
+                      <td colSpan={3} className="px-5 py-8 text-center text-gray-500">
+                        No recent submissions
                       </td>
                     </tr>
-                  ))
-                ) : (
-                  <tr>
-                    <td colSpan={3} className="px-5 py-8 text-center text-gray-500">
-                      No recent submissions
-                    </td>
-                  </tr>
-                )}
-              </tbody>
-            </table>
+                  )}
+                </tbody>
+              </table>
+            )}
           </div>
         </div>
 
@@ -563,42 +631,46 @@ const AdminDashboard: React.FC = () => {
             </span>
           </div>
           <div className="overflow-x-auto">
-            <table className="w-full">
-              <thead className="bg-gray-50 text-xs uppercase text-gray-500">
-                <tr>
-                  <th className="px-5 py-3 text-left">Lead ID</th>
-                  <th className="px-5 py-3 text-left">Status</th>
-                  <th className="px-5 py-3 text-left">Date</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-gray-200">
-                {responses.length > 0 ? (
-                  responses.map((leadId: any, index: number) => (
-                    <tr key={index} className="hover:bg-gray-50 transition-colors">
-                      <td className="px-5 py-4 whitespace-nowrap">#{leadId}</td>
-                      <td className="px-5 py-4 whitespace-nowrap">
-                        <span className="px-2 py-1 bg-green-100 text-green-800 text-xs rounded-full">
-                          Responded
-                        </span>
-                      </td>
-                      <td className="px-5 py-4 whitespace-nowrap">—</td>
-                    </tr>
-                  ))
-                ) : (
+            {subsLoading ? (
+              <TableSkeleton rows={5} cols={3} />
+            ) : (
+              <table className="w-full">
+                <thead className="bg-gray-50 text-xs uppercase text-gray-500">
                   <tr>
-                    <td colSpan={3} className="px-5 py-8 text-center text-gray-500">
-                      No recent responses
-                    </td>
+                    <th className="px-5 py-3 text-left">Lead ID</th>
+                    <th className="px-5 py-3 text-left">Status</th>
+                    <th className="px-5 py-3 text-left">Date</th>
                   </tr>
-                )}
-              </tbody>
-            </table>
+                </thead>
+                <tbody className="divide-y divide-gray-200">
+                  {responses.length > 0 ? (
+                    responses.map((leadId: any, index: number) => (
+                      <tr key={index} className="hover:bg-gray-50 transition-colors">
+                        <td className="px-5 py-4 whitespace-nowrap">#{leadId}</td>
+                        <td className="px-5 py-4 whitespace-nowrap">
+                          <span className="px-2 py-1 bg-green-100 text-green-800 text-xs rounded-full">
+                            Responded
+                          </span>
+                        </td>
+                        <td className="px-5 py-4 whitespace-nowrap">—</td>
+                      </tr>
+                    ))
+                  ) : (
+                    <tr>
+                      <td colSpan={3} className="px-5 py-8 text-center text-gray-500">
+                        No recent responses
+                      </td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            )}
           </div>
         </div>
       </section>
 
-      {/* Full submissions table */}
-      <section className="mb-8">
+      {/* Full submissions table (lazy loaded section) */}
+      <section className="mb-8" ref={fullSubsRef}>
         <div className="bg-white rounded-xl shadow-sm overflow-hidden">
           <div className="p-5 border-b border-gray-200 flex justify-between items-center">
             <h2 className="text-lg font-semibold text-gray-800">Calculate Form Submissions User</h2>
@@ -607,8 +679,10 @@ const AdminDashboard: React.FC = () => {
             </span>
           </div>
 
-          {subsLoading ? (
-            <div className="p-6 text-center text-gray-600">Loading submissions…</div>
+          {!showFullSubs ? (
+            <TableSkeleton rows={8} cols={6} />
+          ) : subsLoading ? (
+            <TableSkeleton rows={8} cols={8} />
           ) : subsError ? (
             <div className="p-6 text-center text-red-500">{subsError}</div>
           ) : submissions.length === 0 ? (
@@ -718,10 +792,10 @@ const AdminDashboard: React.FC = () => {
             </button>
           </div>
           <div className="overflow-x-auto">
-            {isLoading ? (
-              <div className="p-6 text-center text-gray-600">Loading blogs...</div>
-            ) : error ? (
-              <div className="p-6 text-center text-red-500">{error}</div>
+            {isLoadingBlogs ? (
+              <TableSkeleton rows={5} cols={4} />
+            ) : errorBlogs ? (
+              <div className="p-6 text-center text-red-500">{errorBlogs}</div>
             ) : (
               <table className="w-full">
                 <thead className="bg-gray-50 text-xs uppercase text-gray-500">
@@ -863,13 +937,28 @@ const AdminDashboard: React.FC = () => {
   );
 };
 
-const StatCard = ({ title, value, trend, icon, color }: any) => (
+interface StatCardProps {
+  title: string;
+  value: string | number;
+  trend?: TrendInfo | null;
+  icon: React.ReactNode;
+  color: string;
+  loading?: boolean;
+}
+
+const StatCard: React.FC<StatCardProps> = ({ title, value, trend, icon, color, loading }) => (
   <div className="bg-white rounded-xl shadow-sm p-5 hover:shadow-md transition-shadow">
     <div className="flex justify-between items-start">
-      <div>
+      <div className="flex-1">
         <p className="text-sm font-medium text-gray-600">{title}</p>
-        <h3 className="text-2xl font-bold text-gray-800 mt-1">{value}</h3>
-        {trend && (
+        <div className="mt-1">
+          {loading ? (
+            <SkeletonBox className="h-7 w-20" />
+          ) : (
+            <h3 className="text-2xl font-bold text-gray-800">{value}</h3>
+          )}
+        </div>
+        {!loading && trend && (
           <span
             className={`text-xs font-medium mt-1 flex items-center ${
               trend.isPositive ? "text-green-600" : "text-red-600"
