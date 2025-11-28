@@ -35,7 +35,7 @@ function slugify(input: string) {
   return (input || "")
     .toLowerCase()
     .normalize("NFKD")
-    .replace(/[\u0300-\u036f]/g, "") // remove diacritics
+    .replace(/[\u0300-\u036f]/g, "")
     .replace(/&/g, "and")
     .replace(/[^a-z0-9]+/g, "-")
     .replace(/^-+|-+$/g, "")
@@ -44,6 +44,8 @@ function slugify(input: string) {
 
 export default function BlogPost() {
   const { id } = useParams<{ id: string }>();
+  const postId = Number(id);
+
   const router = useRouter();
   const searchParams = useSearchParams();
   const urlSlug = searchParams.get("slug") || "";
@@ -51,7 +53,7 @@ export default function BlogPost() {
   const { data: session, status } = useSession();
   const isAuthed = status === "authenticated";
 
-  const [blogs, setBlogs] = useState<Blog[]>([]);
+  const [post, setPost] = useState<Blog | null>(null);
   const [loading, setLoading] = useState(true);
 
   // === unified modal state ===
@@ -65,52 +67,63 @@ export default function BlogPost() {
     post_status?: "draft" | "publish" | "private" | string;
   } | null>(null);
 
-  /** Fetch posts */
+  /** ✅ Fetch only the single post by id (FAST + FIXED) */
   useEffect(() => {
-    const fetchBlogs = async () => {
+    if (!postId || Number.isNaN(postId)) {
+      setLoading(false);
+      return;
+    }
+
+    const controller = new AbortController();
+
+    const fetchPost = async () => {
+      setLoading(true);
       try {
-        const res = await fetch("/api/blogpost", { cache: "no-store" });
+        const res = await fetch(`/api/blogpost?id=${postId}`, {
+          signal: controller.signal,
+        });
+
         if (!res.ok) throw new Error("Failed to fetch blog data");
         const data = await res.json();
 
-        const transformed: Blog[] = data.map((item: any) => ({
-          id: item.id,
-          post_title: item.post_title,
-          post_content: String(item.post_content ?? ""),
-          createdAt: item.createdAt,
-          category: item.category ?? "",
-          tags: item.tags ?? [],
-          post_status: item.post_status ?? "draft",
-        }));
+        const transformed: Blog = {
+          id: data.id,
+          post_title: data.post_title,
+          post_content:
+            typeof data.post_content === "object" && data.post_content?.text
+              ? data.post_content.text
+              : String(data.post_content ?? ""),
+          createdAt: data.createdAt,
+          category: data.category ?? "",
+          tags: data.tags ?? [],
+          post_status: data.post_status ?? "draft",
+        };
 
-        setBlogs(transformed);
+        setPost(transformed);
       } catch (e) {
-        console.error(e);
+        if ((e as any).name !== "AbortError") console.error(e);
       } finally {
         setLoading(false);
       }
     };
-    fetchBlogs();
-  }, []);
 
-  const postId = Number(id);
-  const post = useMemo(
-    () => blogs.find((p) => p.id === postId),
-    [blogs, postId]
-  );
+    fetchPost();
+    return () => controller.abort();
+  }, [postId]);
 
   // ✅ ensure URL has ?slug=<slug-from-title>
   useEffect(() => {
     if (!post) return;
     const desired = slugify(post.post_title || "");
     if (!desired) return;
+
     if (urlSlug !== desired) {
       const qs = new URLSearchParams(Array.from(searchParams.entries()));
       qs.set("slug", desired);
       router.replace(`/blog/${postId}?${qs.toString()}`, { scroll: false });
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [postId, post?.post_title]); // depend only on id/title
+  }, [postId, post?.post_title]);
 
   const readTime = useMemo(() => {
     if (!post?.post_content) return 1;
@@ -120,12 +133,13 @@ export default function BlogPost() {
         .trim()
         .split(/\s+/).length || 1;
     return Math.max(1, Math.ceil(words / 200));
-  }, [post]);
+  }, [post?.post_content]);
 
   /** Open Edit */
   const openEdit = (focus: "title" | "content") => {
     if (!isAuthed) return signIn();
     if (!post) return;
+
     setEditBlogData({
       id: post.id,
       post_title: post.post_title || "",
@@ -165,14 +179,14 @@ export default function BlogPost() {
           post_status: payload.post_status ?? "draft",
         }),
       });
+
       if (!res.ok) {
         const err = await res.json().catch(() => ({}));
         throw new Error(err?.error || "Failed to update");
       }
+
       const updated: Blog = await res.json();
-      setBlogs((prev) =>
-        prev.map((p) => (p.id === updated.id ? { ...p, ...updated } : p))
-      );
+      setPost((prev) => (prev ? { ...prev, ...updated } : updated));
       handleCloseModal();
     } catch (e) {
       alert((e as Error).message || "Update failed");
@@ -186,19 +200,22 @@ export default function BlogPost() {
     stripHtml(post?.post_content ?? "").slice(0, 160) ||
     "Read this article on Moving Quote Texas Blog.";
   const effectiveSlug = slugify(title);
-  const canonical = `${SITE_URL}/blog/${postId}${effectiveSlug ? `?slug=${encodeURIComponent(effectiveSlug)}` : ""
-    }`;
+  const canonical = `${SITE_URL}/blog/${postId}${
+    effectiveSlug ? `?slug=${encodeURIComponent(effectiveSlug)}` : ""
+  }`;
+
   const isPublished =
     String(post?.post_status ?? "draft").toLowerCase() === "publish" ||
     String(post?.post_status ?? "draft").toLowerCase() === "published";
+
   const keywords =
     (Array.isArray(post?.tags)
       ? post?.tags
-      : String(post?.tags || "").split(",")
-    )
+      : String(post?.tags || "").split(","))
       .map((t) => String(t).trim())
       .filter(Boolean)
       .join(", ") || undefined;
+
   const dateISO = post?.createdAt
     ? new Date(post.createdAt).toISOString()
     : new Date().toISOString();
@@ -221,7 +238,7 @@ export default function BlogPost() {
     keywords,
   };
 
-  /** Loading / Not Found */
+  /** ✅ Skeleton loader (same layout vibe) */
   if (loading) {
     return (
       <>
@@ -230,10 +247,27 @@ export default function BlogPost() {
           <meta name="robots" content="noindex,nofollow" />
           <link rel="canonical" href={canonical} />
         </Head>
-        <div className="min-h-screen grid place-items-center bg-white">
-          <div className="flex flex-col items-center gap-4">
-            <div className="h-16 w-16 rounded-full border-4 border-cyan-500 border-t-transparent animate-spin" />
-            <p className="text-xl font-medium text-slate-700">Loading Post…</p>
+
+        <div className="min-h-screen bg-white">
+          <div className="mx-auto max-w-7xl px-6 pt-16 pb-24 grid grid-cols-1 lg:grid-cols-12 lg:gap-12 animate-pulse">
+            <div className="lg:col-span-8 space-y-6">
+              <div className="h-10 w-3/4 bg-slate-200 rounded" />
+              <div className="h-6 w-1/3 bg-slate-200 rounded" />
+              <div className="space-y-3">
+                <div className="h-4 w-full bg-slate-200 rounded" />
+                <div className="h-4 w-11/12 bg-slate-200 rounded" />
+                <div className="h-4 w-10/12 bg-slate-200 rounded" />
+                <div className="h-4 w-9/12 bg-slate-200 rounded" />
+              </div>
+            </div>
+
+            <aside className="lg:col-span-4 mt-10 lg:mt-0">
+              <div className="p-6 border border-slate-100 rounded-xl bg-slate-50 shadow-md space-y-4">
+                <div className="h-4 w-1/2 bg-slate-200 rounded" />
+                <div className="h-10 w-full bg-slate-200 rounded" />
+                <div className="h-10 w-full bg-slate-200 rounded" />
+              </div>
+            </aside>
           </div>
         </div>
       </>
@@ -260,7 +294,7 @@ export default function BlogPost() {
               The requested article could not be located.
             </p>
             <Link
-              href="/"
+              href="/blog"
               className="mt-8 inline-flex items-center gap-2 rounded-xl bg-cyan-600 px-6 py-3 text-lg font-semibold text-white shadow-lg shadow-cyan-500/30 hover:bg-cyan-700 transition"
             >
               <span className="text-xl">←</span> Return to Blog Home
@@ -292,10 +326,7 @@ export default function BlogPost() {
         <meta property="og:description" content={description} />
         <meta property="og:url" content={canonical} />
         <meta name="twitter:card" content="summary" />
-        <meta
-          name="twitter:title"
-          content={`${title} | Moving Quote Texas Blog`}
-        />
+        <meta name="twitter:title" content={`${title} | Moving Quote Texas Blog`} />
         <meta name="twitter:description" content={description} />
         {jsonLd && (
           <script
@@ -305,25 +336,19 @@ export default function BlogPost() {
         )}
       </Head>
 
+      {/* ---- rest of your UI unchanged ---- */}
       <div className="min-h-screen bg-white relative">
-        {/* Header (add breadcrumb for UX/SEO) */}
-        <header
-          className="py-8 border-b border-slate-100 shadow-sm"
-          role="banner"
-        >
+        {/* Header */}
+        <header className="py-8 border-b border-slate-100 shadow-sm" role="banner">
           <div className="mx-auto max-w-7xl px-6">
             <nav aria-label="Breadcrumb">
               <ol className="flex items-center gap-2 text-slate-500 text-sm">
                 <li>
-                  <Link href="/" className="hover:text-cyan-600">
-                    Home
-                  </Link>
+                  <Link href="/" className="hover:text-cyan-600">Home</Link>
                 </li>
                 <li aria-hidden="true">/</li>
                 <li>
-                  <Link href="/blog" className="hover:text-cyan-600">
-                    Blog
-                  </Link>
+                  <Link href="/blog" className="hover:text-cyan-600">Blog</Link>
                 </li>
                 <li aria-hidden="true">/</li>
                 <li aria-current="page" className="text-slate-800 font-medium">
@@ -342,7 +367,7 @@ export default function BlogPost() {
         >
           <article className="lg:col-span-8">
             <div className="max-w-4xl space-y-8">
-              {/* Title with inline edit */}
+              {/* Title */}
               <div className="relative group">
                 <h1
                   className="text-4xl md:text-5xl font-extrabold tracking-tight text-slate-900 leading-snug"
@@ -359,34 +384,17 @@ export default function BlogPost() {
                     className="absolute -right-2 -top-2 opacity-0 group-hover:opacity-100 focus:opacity-100
                                transition rounded-full bg-cyan-600 text-white p-2 shadow-lg hover:bg-cyan-700"
                   >
-                    <svg
-                      xmlns="http://www.w3.org/2000/svg"
-                      className="h-4 w-4"
-                      fill="none"
-                      viewBox="0 0 24 24"
-                      stroke="currentColor"
-                      strokeWidth={2}
-                    >
-                      <path
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                        d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5M18.5 2.5a2.121 2.121 0 113 3L12 15l-4 1 1-4 9.5-9.5z"
-                      />
+                    {/* icon */}
+                    <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none"
+                      viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                      <path strokeLinecap="round" strokeLinejoin="round"
+                        d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5M18.5 2.5a2.121 2.121 0 113 3L12 15l-4 1 1-4 9.5-9.5z" />
                     </svg>
                   </button>
                 )}
               </div>
 
-              {/* Optional excerpt */}
-              {/* <p
-                className="text-xl text-slate-600 font-medium"
-                itemProp="abstract"
-              > */}
-                {/* If you store excerpt separately, render it here. Using trimmed body as fallback */}
-                {/* {description} */}
-              {/* </p> */}
-
-              {/* Label / Category */}
+              {/* Category */}
               {post.category && (
                 <div>
                   <span
@@ -398,7 +406,7 @@ export default function BlogPost() {
                 </div>
               )}
 
-              {/* Content with inline edit */}
+              {/* Content */}
               <div className="relative group">
                 {isAuthed && (
                   <button
@@ -408,19 +416,10 @@ export default function BlogPost() {
                     className="absolute -right-2 -top-2 opacity-0 group-hover:opacity-100 focus:opacity-100
                                transition rounded-full bg-cyan-600 text-white p-2 shadow-lg hover:bg-cyan-700 z-10"
                   >
-                    <svg
-                      xmlns="http://www.w3.org/2000/svg"
-                      className="h-4 w-4"
-                      fill="none"
-                      viewBox="0 0 24 24"
-                      stroke="currentColor"
-                      strokeWidth={2}
-                    >
-                      <path
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                        d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5M18.5 2.5a2.121 2.121 0 113 3L12 15l-4 1 1-4 9.5-9.5z"
-                      />
+                    <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none"
+                      viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                      <path strokeLinecap="round" strokeLinejoin="round"
+                        d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5M18.5 2.5a2.121 2.121 0 113 3L12 15l-4 1 1-4 9.5-9.5z" />
                     </svg>
                   </button>
                 )}
@@ -432,11 +431,9 @@ export default function BlogPost() {
                 />
               </div>
 
-              {/* meta (date + tags) for crawlers */}
+              {/* meta for crawlers */}
               <div className="sr-only">
-                <time dateTime={dateISO} itemProp="datePublished">
-                  {dateISO}
-                </time>
+                <time dateTime={dateISO} itemProp="datePublished">{dateISO}</time>
                 <meta itemProp="dateModified" content={dateISO} />
                 <meta itemProp="author" content="Moving Quote Texas" />
                 {keywords && <meta itemProp="keywords" content={keywords} />}
@@ -445,10 +442,7 @@ export default function BlogPost() {
           </article>
 
           {/* Sidebar */}
-          <aside
-            className="lg:col-span-4 mt-12 lg:mt-0"
-            aria-label="Article details"
-          >
+          <aside className="lg:col-span-4 mt-12 lg:mt-0" aria-label="Article details">
             <div className="lg:sticky lg:top-10">
               <div className="p-6 border border-slate-100 rounded-xl bg-slate-50 shadow-md">
                 <p className="text-sm font-semibold uppercase text-slate-500 mb-4 tracking-wider">
@@ -457,18 +451,9 @@ export default function BlogPost() {
 
                 <div className="space-y-4">
                   <div className="flex items-center gap-3">
-                    <svg
-                      className="w-5 h-5 text-cyan-600"
-                      fill="none"
-                      viewBox="0 0 24 24"
-                      stroke="currentColor"
-                    >
-                      <path
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                        strokeWidth={2}
-                        d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"
-                      />
+                    <svg className="w-5 h-5 text-cyan-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
+                        d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
                     </svg>
                     <div>
                       <p className="text-xs text-slate-500">Published</p>
@@ -483,34 +468,20 @@ export default function BlogPost() {
                   </div>
 
                   <div className="flex items-center gap-3">
-                    <svg
-                      className="w-5 h-5 text-cyan-600"
-                      fill="none"
-                      viewBox="0 0 24 24"
-                      stroke="currentColor"
-                    >
-                      <path
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                        strokeWidth={2}
-                        d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"
-                      />
+                    <svg className="w-5 h-5 text-cyan-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
+                        d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
                     </svg>
                     <div>
                       <p className="text-xs text-slate-500">Reading Time</p>
-                      <p className="font-semibold text-slate-800">
-                        {readTime} min read
-                      </p>
+                      <p className="font-semibold text-slate-800">{readTime} min read</p>
                     </div>
                   </div>
                 </div>
               </div>
 
               <div className="mt-8 text-center">
-                <Link
-                  href="/"
-                  className="text-cyan-600 font-semibold hover:text-cyan-700 transition"
-                >
+                <Link href="/blog" className="text-cyan-600 font-semibold hover:text-cyan-700 transition">
                   Browse All Articles →
                 </Link>
               </div>
@@ -519,7 +490,7 @@ export default function BlogPost() {
         </main>
       </div>
 
-      {/* === EDIT MODAL (same UX as your Create/Edit wrapper) === */}
+      {/* Edit Modal unchanged */}
       {isFormVisible && (
         <div
           className="fixed inset-0 bg-gray-500 bg-opacity-70 flex justify-center items-center z-50"
@@ -533,10 +504,7 @@ export default function BlogPost() {
           >
             <div className="flex justify-between mb-2">
               <h2 className="text-2xl font-bold">Edit Blog</h2>
-              <button
-                onClick={handleCloseModal}
-                className="text-gray-500 font-bold text-xl"
-              >
+              <button onClick={handleCloseModal} className="text-gray-500 font-bold text-xl">
                 &times;
               </button>
             </div>
@@ -549,7 +517,6 @@ export default function BlogPost() {
           </div>
         </div>
       )}
-      {/* === End Modal === */}
     </>
   );
 }

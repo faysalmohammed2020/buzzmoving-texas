@@ -1,14 +1,12 @@
 "use client";
 
-import React, { useState, useEffect, useMemo } from "react";
+import React, { useState, useEffect, useMemo, useTransition, useCallback } from "react";
 import Link from "next/link";
 import Image from "next/image";
-import dynamic from "next/dynamic";
 
 interface Blog {
   id: number;
   post_title: string;
-  post_content: string;
   post_category: string;
   post_tags: string;
   createdAt: string;
@@ -17,43 +15,34 @@ interface Blog {
   readTime: number;
 }
 
-// Helper function to safely extract the first image
-const extractFirstImage = (htmlContent: string): string => {
+interface BlogResponse {
+  data: Blog[];
+  meta: {
+    page: number;
+    limit: number;
+    total: number;
+    totalPages: number;
+  };
+}
+
+/** ✅ normalize any kind of relative image path safely for next/image */
+const normalizeImageUrl = (src?: string) => {
   const fallback = "/placeholder-blog.svg";
+  if (!src) return fallback;
 
-  if (typeof window === "undefined") return fallback;
+  let s = String(src).trim();
+  if (s.startsWith("http://") || s.startsWith("https://")) return s;
 
-  try {
-    const parser = new DOMParser();
-    const doc = parser.parseFromString(htmlContent || "", "text/html");
-    const imgElement = doc.querySelector("img");
-    if (!imgElement) return fallback;
+  s = s.replace(/^(\.\.\/)+/g, "/");
+  s = s.replace(/^(\.\/)+/g, "/");
+  if (!s.startsWith("/")) s = "/" + s;
+  s = s.replace(/^\/public\//, "/");
+  if (s === "/" || s.length < 2) return fallback;
 
-    let src = imgElement.getAttribute("src") || "";
-
-    const baseURL =
-      process.env.NEXT_PUBLIC_BASE_URL || window.location.origin;
-
-    if (src.startsWith("/public/")) {
-      src = src.replace(/^\/public\//, "/");
-    }
-
-    if (src.startsWith("/")) {
-      src = `${baseURL}${src}`;
-    } else {
-      const u = new URL(src, baseURL);
-      const cleanPath = u.pathname.replace(/^\/public\//, "/");
-      src = `${baseURL}${cleanPath}${u.search}${u.hash}`;
-    }
-
-    return src || fallback;
-  } catch {
-    return fallback;
-  }
+  return s;
 };
 
-// 🔹 Skeleton Card (loading state-এর জন্য)
-const BlogCardSkeleton: React.FC = () => (
+const BlogCardSkeleton: React.FC = React.memo(() => (
   <div className="bg-white rounded-2xl overflow-hidden shadow-xl border border-gray-100 animate-pulse h-full flex flex-col">
     <div className="relative w-full h-48 bg-gray-200" />
     <div className="p-6 flex flex-col flex-grow gap-3">
@@ -70,9 +59,9 @@ const BlogCardSkeleton: React.FC = () => (
       </div>
     </div>
   </div>
-);
+));
+BlogCardSkeleton.displayName = "BlogCardSkeleton";
 
-// 🔹 আলাদা BlogCard (memoized → re-render কম)
 const BlogCard: React.FC<{ post: Blog }> = React.memo(({ post }) => {
   const postDate = useMemo(
     () =>
@@ -84,17 +73,14 @@ const BlogCard: React.FC<{ post: Blog }> = React.memo(({ post }) => {
     [post.createdAt]
   );
 
+  const safeImg = normalizeImageUrl(post.imageUrl);
+
   return (
-    <Link
-      href={`/blog/${post.id}`}
-      passHref
-      className="group"
-    >
+    <Link href={`/blog/${post.id}`} className="group">
       <div className="bg-white rounded-2xl overflow-hidden shadow-xl hover:shadow-2xl transition-all duration-300 transform group-hover:-translate-y-1 h-full flex flex-col border border-gray-100">
-        {/* Image */}
         <div className="relative w-full h-48 overflow-hidden">
           <Image
-            src={post.imageUrl}
+            src={safeImg}
             alt={post.post_title}
             fill
             loading="lazy"
@@ -104,7 +90,6 @@ const BlogCard: React.FC<{ post: Blog }> = React.memo(({ post }) => {
           />
         </div>
 
-        {/* Content */}
         <div className="p-6 flex flex-col flex-grow">
           <span className="text-xs font-semibold uppercase text-indigo-600 tracking-widest mb-2">
             {post.post_category}
@@ -114,45 +99,13 @@ const BlogCard: React.FC<{ post: Blog }> = React.memo(({ post }) => {
             {post.post_title}
           </h2>
 
-          <div className="flex-grow">
-            <p className="text-gray-600 line-clamp-3">
-              {post.excerpt}...
-            </p>
-          </div>
+          <p className="text-gray-600 line-clamp-3 flex-grow">
+            {post.excerpt}...
+          </p>
 
           <div className="mt-5 pt-4 border-t border-gray-100 flex items-center justify-between text-sm text-gray-500">
-            <span className="flex items-center gap-1">
-              <svg
-                className="w-4 h-4 text-indigo-500"
-                fill="none"
-                viewBox="0 0 24 24"
-                stroke="currentColor"
-              >
-                <path
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  strokeWidth={2}
-                  d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"
-                />
-              </svg>
-              {postDate}
-            </span>
-            <span className="flex items-center gap-1">
-              <svg
-                className="w-4 h-4 text-indigo-500"
-                fill="none"
-                viewBox="0 0 24 24"
-                stroke="currentColor"
-              >
-                <path
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  strokeWidth={2}
-                  d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"
-                />
-              </svg>
-              {post.readTime} min read
-            </span>
+            <span>{postDate}</span>
+            <span>{post.readTime} min read</span>
           </div>
         </div>
       </div>
@@ -161,121 +114,85 @@ const BlogCard: React.FC<{ post: Blog }> = React.memo(({ post }) => {
 });
 BlogCard.displayName = "BlogCard";
 
-const BlogPage: React.FC = () => {
-  const [isLoading, setIsLoading] = useState<boolean>(true);
+export default function BlogPageClient({
+  initialBlogs,
+  initialMeta,
+  postsPerPage,
+}: {
+  initialBlogs: Blog[];
+  initialMeta: BlogResponse["meta"];
+  postsPerPage: number;
+}) {
+  const [blogs, setBlogs] = useState<Blog[]>(initialBlogs);
+  const [currentPage, setCurrentPage] = useState(initialMeta.page || 1);
+  const [totalPages, setTotalPages] = useState(initialMeta.totalPages || 1);
+
+  const [initialLoading] = useState(false); // ✅ first render already has data
+  const [pageLoading, setPageLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [blogs, setBlogs] = useState<Blog[]>([]);
 
-  // Pagination States
-  const [currentPage, setCurrentPage] = useState<number>(1);
-  const postsPerPage = 6;
+  const [isPending, startTransition] = useTransition();
 
-  // --- Data Fetching + All preprocessing এক জায়গায় ---
-  useEffect(() => {
-    const fetchBlogs = async () => {
-      setIsLoading(true);
-      try {
-        const response = await fetch("/api/blogpost", { cache: "no-store" });
-        if (!response.ok) throw new Error("Network response was not ok");
-        const data = await response.json();
+  const fetchPage = useCallback(async (page: number, controller: AbortController) => {
+    setError(null);
+    setPageLoading(true);
 
-        const transformedData: Blog[] = (data || []).map((item: any) => {
-          const rawContent =
-            typeof item.post_content === "object" && item.post_content?.text
-              ? item.post_content.text
-              : String(item.post_content || "");
+    try {
+      const res = await fetch(
+        `/api/blogpost?page=${page}&limit=${postsPerPage}`,
+        { signal: controller.signal, cache: "no-store" }
+      );
+      if (!res.ok) throw new Error("Failed to fetch blogs");
+      const json: BlogResponse = await res.json();
 
-          const plainText = rawContent
-            .replace(/<[^>]+>/g, " ")
-            .replace(/\s+/g, " ")
-            .trim();
-          const wordCount = plainText ? plainText.split(/\s+/).length : 0;
-          const readTime = Math.max(1, Math.ceil(wordCount / 200));
-          const excerpt = plainText.slice(0, 150);
+      startTransition(() => {
+        setBlogs(json.data || []);
+        setTotalPages(json.meta?.totalPages || 1);
+      });
 
-          const imageUrl = extractFirstImage(rawContent);
-
-          return {
-            id: item.id,
-            post_title: item.post_title,
-            post_content: rawContent,
-            post_category: item.category || "General",
-            post_tags: item.tags || "",
-            createdAt: item.createdAt || new Date().toISOString(),
-            imageUrl,
-            excerpt,
-            readTime,
-          };
-        });
-
-        setBlogs(transformedData);
-      } catch (err) {
-        console.error("Fetch error:", err);
-        setError("Failed to load articles. Please check your connection.");
-      } finally {
-        setIsLoading(false);
+      // ✅ prefetch next page silently (faster next click)
+      if (page < (json.meta?.totalPages || 1)) {
+        fetch(`/api/blogpost?page=${page + 1}&limit=${postsPerPage}`, {
+          cache: "no-store",
+        }).catch(() => {});
       }
-    };
-
-    fetchBlogs();
-  }, []);
-
-  // ✅ Global priority: image থাকা পোস্ট আগে, তারপর নরমাল
-  const prioritizedBlogs = useMemo(() => {
-    const hasRealImage = (b: Blog) =>
-      b.imageUrl && b.imageUrl !== "/placeholder-blog.svg";
-    return [...blogs].sort((a, b) => {
-      const aHas = hasRealImage(a) ? 1 : 0;
-      const bHas = hasRealImage(b) ? 1 : 0;
-      return bHas - aHas;
-    });
-  }, [blogs]);
-
-  const totalPages = useMemo(
-    () => Math.ceil(prioritizedBlogs.length / postsPerPage) || 1,
-    [prioritizedBlogs.length, postsPerPage]
-  );
-
-  const currentPosts = useMemo(() => {
-    const indexOfLastPost = currentPage * postsPerPage;
-    const indexOfFirstPost = indexOfLastPost - postsPerPage;
-    return prioritizedBlogs.slice(indexOfFirstPost, indexOfLastPost);
-  }, [prioritizedBlogs, currentPage, postsPerPage]);
-
-  const paginate = (pageNumber: number) => {
-    if (pageNumber < 1 || pageNumber > totalPages) return;
-    setCurrentPage(pageNumber);
-    if (typeof window !== "undefined") {
-      window.scrollTo({ top: 0, behavior: "smooth" });
+    } catch (e: any) {
+      if (e.name !== "AbortError") {
+        console.error(e);
+        setError("Failed to load articles. Please check your connection.");
+      }
+    } finally {
+      setPageLoading(false);
     }
+  }, [postsPerPage, startTransition]);
+
+  useEffect(() => {
+    // currentPage=1 (server) হলে আর fetch লাগবে না
+    if (currentPage === initialMeta.page) return;
+
+    const controller = new AbortController();
+    fetchPage(currentPage, controller);
+    return () => controller.abort();
+  }, [currentPage, fetchPage, initialMeta.page]);
+
+  const paginate = (p: number) => {
+    if (p < 1 || p > totalPages) return;
+    setCurrentPage(p);
+    window.scrollTo({ top: 0, behavior: "smooth" });
   };
 
   const getPageNumbers = () => {
     const maxVisiblePages = 3;
-
-    if (totalPages <= 6) {
+    if (totalPages <= 6)
       return Array.from({ length: totalPages }, (_, i) => i + 1);
-    }
-
-    if (currentPage <= maxVisiblePages) {
+    if (currentPage <= maxVisiblePages)
       return [1, 2, 3, "...", totalPages];
-    } else if (currentPage > totalPages - maxVisiblePages) {
+    if (currentPage > totalPages - maxVisiblePages)
       return [1, "...", totalPages - 2, totalPages - 1, totalPages];
-    } else {
-      return [
-        1,
-        "...",
-        currentPage - 1,
-        currentPage,
-        currentPage + 1,
-        "...",
-        totalPages,
-      ];
-    }
+    return [1, "...", currentPage - 1, currentPage, currentPage + 1, "...", totalPages];
   };
 
-  // --- Loading State (Skeleton) ---
-  if (isLoading) {
+  if (initialLoading) {
     return (
       <div className="bg-gray-50 min-h-screen py-16">
         <div className="container mx-auto px-4 max-w-7xl">
@@ -293,7 +210,6 @@ const BlogPage: React.FC = () => {
     );
   }
 
-  // --- Error State ---
   if (error) {
     return (
       <div className="min-h-[60vh] grid place-items-center bg-red-50">
@@ -307,7 +223,6 @@ const BlogPage: React.FC = () => {
   return (
     <div className="bg-gray-50 min-h-screen py-16">
       <div className="container mx-auto px-4 max-w-7xl">
-        {/* Editorial Header */}
         <div className="text-center mb-12">
           <h1 className="text-6xl font-extrabold text-gray-900 tracking-tight">
             Our Blogs
@@ -318,14 +233,18 @@ const BlogPage: React.FC = () => {
           </p>
         </div>
 
-        {/* Blog Grid */}
+        {(pageLoading || isPending) && (
+          <div className="w-full h-1 bg-gray-200 rounded mb-6 overflow-hidden">
+            <div className="h-full w-1/3 bg-indigo-500 animate-pulse" />
+          </div>
+        )}
+
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-x-8 gap-y-12">
-          {currentPosts.map((post) => (
+          {blogs.map((post) => (
             <BlogCard key={post.id} post={post} />
           ))}
         </div>
 
-        {/* Pagination */}
         {totalPages > 1 && (
           <div className="flex justify-center mt-16">
             <nav className="flex space-x-1 p-2 bg-white rounded-xl shadow-lg border border-gray-200">
@@ -377,6 +296,4 @@ const BlogPage: React.FC = () => {
       </div>
     </div>
   );
-};
-
-export default dynamic(() => Promise.resolve(BlogPage), { ssr: false });
+}

@@ -15,6 +15,10 @@ interface Blog {
   _titleLower: string;
 }
 
+type BlogListResponse =
+  | { data: any[]; meta?: any } // new API
+  | any[];                     // old API
+
 const HeaderMenu: React.FC = () => {
   const [isMobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [hoveredMenu, setHoveredMenu] = useState<string | null>(null);
@@ -33,87 +37,90 @@ const HeaderMenu: React.FC = () => {
   const { data: session } = useSession();
   const router = useRouter();
 
-  // 🔐 Sign out + fallback redirect (dev/prod same behaviour)
   const handleSignOut = useCallback(async () => {
     try {
       await signOut();
     } catch (e) {
       console.error("Sign out failed", e);
     } finally {
-      router.push("/sign-in"); // তোমার প্রকৃত sign-in route দিলে আরও ভালো
+      router.push("/sign-in");
     }
   }, [router]);
 
-  // 🕒 Debounce search (300ms)
+  // debounce search
   useEffect(() => {
     const t = setTimeout(() => setDebouncedQuery(searchQuery.trim()), 300);
     return () => clearTimeout(t);
   }, [searchQuery]);
 
-  // 🧠 Lazy-load blogs only when Blog menu open হয় (first time)
-  useEffect(() => {
-    if (hoveredMenu !== "blogs" || hasLoadedBlogs) return;
+  const unwrapList = (json: BlogListResponse) =>
+    Array.isArray(json) ? json : (json.data || []);
 
-    const controller = new AbortController();
-    const fetchBlogs = async () => {
-      setBlogsLoading(true);
-      setBlogsError(null);
-      try {
-        const response = await fetch("/api/blogpost", {
-          signal: controller.signal,
-        });
-        if (!response.ok) {
-          throw new Error("Failed to fetch blog data");
-        }
-        const data = await response.json();
+  /**
+   * ✅ Fetch ALL titles reliably:
+   * - server may cap limit to 20, so we detect effectivePerPage from page1
+   * - fetch pages until empty OR no new ids found
+   * - DO NOT abort on hover leave (only unmount)
+   */
+useEffect(() => {
+  if (hoveredMenu !== "blogs" || hasLoadedBlogs) return;
 
-        const mapped: Blog[] = (data || []).map((item: any) => {
-          const title = String(item.post_title || "");
-          return {
-            id: item.id,
-            post_title: title,
-            _titleLower: title.toLowerCase(),
-          };
-        });
+  const controller = new AbortController();
 
-        setBlogs(mapped);
-        setHasLoadedBlogs(true);
-      } catch (error: any) {
-        if (error?.name === "AbortError") return;
+  const fetchAllBlogTitles = async () => {
+    setBlogsLoading(true);
+    setBlogsError(null);
+
+    try {
+      const res = await fetch(`/api/blogpost?titles=1`, {
+        signal: controller.signal,
+        cache: "no-store",
+      });
+
+      if (!res.ok) throw new Error("Failed to fetch titles");
+
+      const list = await res.json(); // এখানে সরাসরি array আসবে
+
+      const mapped: Blog[] = (list || []).map((item: any) => {
+        const title = String(item.post_title || "");
+        return {
+          id: Number(item.id),
+          post_title: title,
+          _titleLower: title.toLowerCase(),
+        };
+      });
+
+      setBlogs(mapped);
+      setHasLoadedBlogs(true);
+    } catch (error: any) {
+      if (error?.name !== "AbortError") {
         console.error("Error fetching blogs:", error);
         setBlogsError("Failed to load blogs.");
-      } finally {
-        setBlogsLoading(false);
       }
-    };
-
-    fetchBlogs();
-
-    return () => controller.abort();
-  }, [hoveredMenu, hasLoadedBlogs]);
-
-  // 🔍 Filtered blogs (memoized, limited results)
-  const filteredBlogs = useMemo(() => {
-    const MAX_RESULTS = 30; // dropdown এ একসাথে অনেক দেখানোর দরকার নেই
-    const q = debouncedQuery.toLowerCase();
-    if (!q) {
-      return blogs.slice(0, MAX_RESULTS);
+    } finally {
+      setBlogsLoading(false);
     }
-    return blogs
-      .filter((blog) => blog._titleLower.includes(q))
-      .slice(0, MAX_RESULTS);
+  };
+
+  fetchAllBlogTitles();
+  return () => controller.abort();
+}, [hoveredMenu, hasLoadedBlogs]);
+
+
+  const filteredBlogs = useMemo(() => {
+    const MAX_RESULTS = 30;
+    const q = debouncedQuery.toLowerCase();
+    if (!q) return blogs.slice(0, MAX_RESULTS);
+    return blogs.filter((b) => b._titleLower.includes(q)).slice(0, MAX_RESULTS);
   }, [blogs, debouncedQuery]);
 
-  // 🔵 Highlight search term safely (no dangerouslySetInnerHTML)
   const renderHighlightedTitle = (text: string, query: string) => {
     if (!query) return text;
     const regex = new RegExp(`(${query})`, "gi");
     const parts = text.split(regex);
     return parts.map((part, idx) =>
       part.toLowerCase() === query.toLowerCase() ? (
-        <span key={idx} className="text-blue-600">
-          {part}
-        </span>
+        <span key={idx} className="text-blue-600">{part}</span>
       ) : (
         <span key={idx}>{part}</span>
       )
@@ -121,16 +128,12 @@ const HeaderMenu: React.FC = () => {
   };
 
   const handleMouseEnter = (menuName: string) => {
-    if (timeoutRef.current) {
-      clearTimeout(timeoutRef.current);
-    }
+    if (timeoutRef.current) clearTimeout(timeoutRef.current);
     setHoveredMenu(menuName);
   };
 
   const handleMouseLeave = () => {
-    timeoutRef.current = setTimeout(() => {
-      setHoveredMenu(null);
-    }, 300);
+    timeoutRef.current = setTimeout(() => setHoveredMenu(null), 250);
   };
 
   return (
@@ -155,19 +158,13 @@ const HeaderMenu: React.FC = () => {
             onClick={() => setMobileMenuOpen((prev) => !prev)}
             className="text-white"
           >
-            {isMobileMenuOpen ? (
-              <X className="w-6 h-6" />
-            ) : (
-              <Menu className="w-6 h-6" />
-            )}
+            {isMobileMenuOpen ? <X className="w-6 h-6" /> : <Menu className="w-6 h-6" />}
           </button>
         </div>
 
         {/* Desktop Nav */}
         <ul className="hidden md:flex items-center space-x-10 font-semibold text-lg">
-          <li>
-            <Link href="/home">Home</Link>
-          </li>
+          <li><Link href="/home">Home</Link></li>
 
           {/* Services Dropdown */}
           <li
@@ -179,7 +176,6 @@ const HeaderMenu: React.FC = () => {
               <span>Services</span>
               <ChevronDown className="ml-2 w-4 h-4 text-white" />
             </div>
-
             {hoveredMenu === "services" && (
               <div className="absolute left-0 mt-5 w-72 bg-white text-black shadow-lg rounded-xl p-6">
                 <div className="w-full gap-4 pl-2">
@@ -188,40 +184,11 @@ const HeaderMenu: React.FC = () => {
                       <h5 className="text-lg font-bold mb-2">Our Services</h5>
                       <hr />
                     </div>
-
                     <ul className="space-y-1 text-md">
-                      <li>
-                        <Link
-                          href="/services/long-distance-moving"
-                          className="text-gray-700 hover:text-blue-500"
-                        >
-                          Long Distance Moving
-                        </Link>
-                      </li>
-                      <li>
-                        <Link
-                          href="/services/auto-transport"
-                          className="text-gray-700 hover:text-blue-500"
-                        >
-                          Auto Transport
-                        </Link>
-                      </li>
-                      <li>
-                        <Link
-                          href="/services/storage-solutions"
-                          className="text-gray-700 hover:text-blue-500"
-                        >
-                          Storage Solutions
-                        </Link>
-                      </li>
-                      <li>
-                        <Link
-                          href="/services/home-changes"
-                          className="text-gray-700 hover:text-blue-500"
-                        >
-                          Home Changes
-                        </Link>
-                      </li>
+                      <li><Link href="/services/long-distance-moving" className="text-gray-700 hover:text-blue-500">Long Distance Moving</Link></li>
+                      <li><Link href="/services/auto-transport" className="text-gray-700 hover:text-blue-500">Auto Transport</Link></li>
+                      <li><Link href="/services/storage-solutions" className="text-gray-700 hover:text-blue-500">Storage Solutions</Link></li>
+                      <li><Link href="/services/home-changes" className="text-gray-700 hover:text-blue-500">Home Changes</Link></li>
                     </ul>
                   </div>
                 </div>
@@ -248,11 +215,9 @@ const HeaderMenu: React.FC = () => {
             )}
           </li>
 
-          <li>
-            <Link href="/contact">Contact</Link>
-          </li>
+          <li><Link href="/contact">Contact</Link></li>
 
-          {/* Blog Dropdown with search */}
+          {/* Blog Dropdown */}
           <li
             className="group relative"
             onMouseEnter={() => handleMouseEnter("blogs")}
@@ -266,7 +231,7 @@ const HeaderMenu: React.FC = () => {
             {hoveredMenu === "blogs" && (
               <div className="absolute -left-32 mt-5 w-[450px] bg-white text-black shadow-lg rounded-xl p-4">
                 <div className="flex">
-                  {/* Left promo block */}
+                  {/* Left promo */}
                   <div className={`w-1/3 ${isHovered ? "hidden" : "block"}`}>
                     <Image
                       src="/image/delevery4.jpg"
@@ -277,17 +242,12 @@ const HeaderMenu: React.FC = () => {
                     />
                     <h4 className="text-lg font-bold">Explore Blogs</h4>
                     <p className="text-gray-600">
-                      Discover insights, tips, and stories on a variety of
-                      topics.
+                      Discover insights, tips, and stories on a variety of topics.
                     </p>
                   </div>
 
-                  {/* Right: search + list */}
-                  <div
-                    className={`${
-                      isHovered ? "w-full" : "w-2/3"
-                    } gap-4 pl-6 overflow-y-auto h-96`}
-                  >
+                  {/* Right list */}
+                  <div className={`${isHovered ? "w-full" : "w-2/3"} gap-4 pl-6 overflow-y-auto h-96`}>
                     <div
                       onMouseEnter={() => setIsHovered(true)}
                       onMouseLeave={() => setIsHovered(false)}
@@ -303,11 +263,9 @@ const HeaderMenu: React.FC = () => {
                         <hr />
                       </div>
 
-                      <div className="scrollbar mt-4 space-y-4">
+                      <div className="scrollbar mt-4 space-y-3">
                         {blogsLoading ? (
-                          <p className="text-gray-500 text-sm">
-                            Loading blogs...
-                          </p>
+                          <p className="text-gray-500 text-sm">Loading blogs...</p>
                         ) : blogsError ? (
                           <p className="text-red-600 text-sm">{blogsError}</p>
                         ) : filteredBlogs.length > 0 ? (
@@ -320,17 +278,12 @@ const HeaderMenu: React.FC = () => {
                                 href={`/blog/${blog.id}`}
                                 className="text-sm sm:text-base font-medium text-gray-800 hover:underline hover:text-orange-600"
                               >
-                                {renderHighlightedTitle(
-                                  blog.post_title,
-                                  debouncedQuery
-                                )}
+                                {renderHighlightedTitle(blog.post_title, debouncedQuery)}
                               </Link>
                             </div>
                           ))
                         ) : (
-                          <p className="text-red-800 text-sm">
-                            No blogs found...
-                          </p>
+                          <p className="text-red-800 text-sm">No blogs found...</p>
                         )}
                       </div>
                     </div>
@@ -341,7 +294,7 @@ const HeaderMenu: React.FC = () => {
           </li>
         </ul>
 
-        {/* Right section: auth + avatar */}
+        {/* Right section */}
         <div className="hidden md:flex items-center space-x-4">
           {session ? (
             <button
@@ -366,21 +319,11 @@ const HeaderMenu: React.FC = () => {
       {/* Mobile Menu */}
       {isMobileMenuOpen && (
         <ul className="absolute top-16 left-0 w-full bg-white shadow-md flex flex-col text-lg md:hidden">
-          <li className="px-4 py-2 border-b">
-            <Link href="/home">Home</Link>
-          </li>
-          <li className="px-4 py-2 border-b">
-            <Link href="/services">Services</Link>
-          </li>
-          <li className="px-4 py-2 border-b">
-            <Link href="/about-us/testimonial">About Us</Link>
-          </li>
-          <li className="px-4 py-2 border-b">
-            <Link href="/contact">Contact</Link>
-          </li>
-          <li className="px-4 py-2 border-b">
-            <Link href="/blog">Blog</Link>
-          </li>
+          <li className="px-4 py-2 border-b"><Link href="/home">Home</Link></li>
+          <li className="px-4 py-2 border-b"><Link href="/services">Services</Link></li>
+          <li className="px-4 py-2 border-b"><Link href="/about-us/testimonial">About Us</Link></li>
+          <li className="px-4 py-2 border-b"><Link href="/contact">Contact</Link></li>
+          <li className="px-4 py-2 border-b"><Link href="/blog">Blog</Link></li>
         </ul>
       )}
     </header>

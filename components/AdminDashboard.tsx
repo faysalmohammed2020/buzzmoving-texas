@@ -1,5 +1,12 @@
 "use client";
-import React, { useState, useEffect, useMemo, useRef } from "react";
+import React, {
+  useState,
+  useEffect,
+  useMemo,
+  useRef,
+  useCallback,
+  useTransition,
+} from "react";
 import {
   BarChart,
   Bar,
@@ -43,6 +50,7 @@ interface Blog {
   post_status: string;
   comment_status: string;
   createdAt?: string | null;
+  _d?: Date | null; // ✅ precomputed date
 }
 
 type Lead = {
@@ -113,27 +121,53 @@ function pctChange(curr: number, prev: number): TrendInfo {
   return { value: val, isPositive: delta >= 0 };
 }
 
-const SUBS_PAGE_SIZE = 50; // একসাথে ৫০টা row দেখাই → huge data তেও fast render
+const SUBS_PAGE_SIZE = 50;
 const numberFormatter = new Intl.NumberFormat();
 
-// ---------- Simple skeleton helpers ----------
-const SkeletonBox: React.FC<{ className?: string }> = ({ className = "" }) => (
-  <div className={`animate-pulse bg-gray-200 rounded ${className}`} />
-);
+// ✅ idle callback helper
+const runIdle = (cb: () => void) => {
+  if (typeof window === "undefined") return cb();
+  // @ts-ignore
+  if (window.requestIdleCallback) {
+    // @ts-ignore
+    window.requestIdleCallback(cb, { timeout: 500 });
+  } else {
+    setTimeout(cb, 0);
+  }
+};
 
-const TableSkeleton: React.FC<{ rows?: number; cols?: number }> = ({ rows = 5, cols = 4 }) => (
-  <div className="p-4">
-    <div className="space-y-3">
-      {Array.from({ length: rows }).map((_, i) => (
-        <div key={i} className="grid gap-3" style={{ gridTemplateColumns: `repeat(${cols}, minmax(0, 1fr))` }}>
-          {Array.from({ length: cols }).map((__, j) => (
-            <SkeletonBox key={j} className="h-4" />
+// ---------- Skeleton helpers ----------
+const SkeletonBox: React.FC<{ className?: string }> = React.memo(function SkeletonBox({
+  className = "",
+}) {
+  return <div className={`animate-pulse bg-gray-200 rounded ${className}`} />;
+});
+SkeletonBox.displayName = "SkeletonBox";
+
+const TableSkeleton: React.FC<{ rows?: number; cols?: number }> = React.memo(
+  function TableSkeleton({ rows = 5, cols = 4 }) {
+    return (
+      <div className="p-4">
+        <div className="space-y-3">
+          {Array.from({ length: rows }).map((_, i) => (
+            <div
+              key={i}
+              className="grid gap-3"
+              style={{
+                gridTemplateColumns: `repeat(${cols}, minmax(0, 1fr))`,
+              }}
+            >
+              {Array.from({ length: cols }).map((__, j) => (
+                <SkeletonBox key={j} className="h-4" />
+              ))}
+            </div>
           ))}
         </div>
-      ))}
-    </div>
-  </div>
+      </div>
+    );
+  }
 );
+TableSkeleton.displayName = "TableSkeleton";
 
 const AdminDashboard: React.FC = () => {
   const [blogs, setBlogs] = useState<Blog[]>([]);
@@ -144,25 +178,27 @@ const AdminDashboard: React.FC = () => {
   const [isEditModalVisible, setIsEditModalVisible] = useState<boolean>(false);
   const [editBlogData, setEditBlogData] = useState<Blog | null>(null);
 
-  const [stats, setStats] = useState({ dailyLeads: [] as any[], dailyResponses: [] as any[] });
+  const [stats, setStats] = useState({
+    dailyLeads: [] as any[],
+    dailyResponses: [] as any[],
+  });
   const [totalLeads, setTotalLeads] = useState(0);
   const [totalResponses, setTotalResponses] = useState(0);
   const [statsLoading, setStatsLoading] = useState<boolean>(true);
 
-  // Submissions / responses
   const [submissions, setSubmissions] = useState<Lead[]>([]);
   const [responses, setResponses] = useState<any[]>([]);
   const [subsLoading, setSubsLoading] = useState<boolean>(true);
   const [subsError, setSubsError] = useState<string | null>(null);
   const [subsPage, setSubsPage] = useState(1);
 
-  // Lazy-load big submissions table when scrolled into view
+  const [isPending, startTransition] = useTransition();
+
   const [showFullSubs, setShowFullSubs] = useState(false);
   const fullSubsRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
     if (showFullSubs) return;
-
     const node = fullSubsRef.current;
     if (!node) return;
 
@@ -173,43 +209,65 @@ const AdminDashboard: React.FC = () => {
 
     const observer = new IntersectionObserver(
       (entries) => {
-        const [entry] = entries;
-        if (entry.isIntersecting) {
+        if (entries[0]?.isIntersecting) {
           setShowFullSubs(true);
           observer.disconnect();
         }
       },
-      { rootMargin: "100px" }
+      { rootMargin: "200px" }
     );
 
     observer.observe(node);
     return () => observer.disconnect();
   }, [showFullSubs]);
 
-  // ---------- Fetch Blogs ----------
+  // ---------- Fetch Blogs (FAST + GET ALL) ----------
   useEffect(() => {
+    const controller = new AbortController();
+
     const fetchBlogs = async () => {
       setIsLoadingBlogs(true);
       setErrorBlogs(null);
       try {
-        const res = await fetch("/api/blogpost", { cache: "no-store" });
+        const res = await fetch("/api/blogpost?page=1&limit=1000", {
+          cache: "no-store",
+          signal: controller.signal,
+        });
         if (!res.ok) throw new Error("Failed to fetch blogs");
-
         const payload = await res.json();
-        const items: ApiBlog[] = Array.isArray(payload) ? payload : payload.items ?? [];
-        const total: number = Array.isArray(payload) ? items.length : payload.total ?? items.length;
 
-        const transformed: Blog[] = items.map((item) => ({
-          id: item.id,
-          post_title: item.post_title,
-          post_status: String(item.post_status ?? "draft"),
-          comment_status: normalizeCommentStatus(item.comment_status),
-          createdAt: item.createdAt ?? item.post_date ?? null,
-        }));
+        const items: ApiBlog[] = Array.isArray(payload)
+          ? payload
+          : payload.data || payload.items || [];
 
-        setBlogs(transformed);
-        setTotalBlogs(total);
-      } catch (err) {
+        const total =
+          Array.isArray(payload)
+            ? items.length
+            : payload.meta?.total || payload.total || items.length;
+
+        // ✅ transform + precompute date once
+        const transformed: Blog[] = items.map((item) => {
+          const createdAt = item.createdAt ?? item.post_date ?? null;
+          const d = createdAt ? new Date(createdAt) : null;
+          return {
+            id: Number(item.id),
+            post_title: String(item.post_title || ""),
+            post_status: String(item.post_status ?? "draft"),
+            comment_status: normalizeCommentStatus(item.comment_status),
+            createdAt,
+            _d: d && !isNaN(d.getTime()) ? d : null,
+          };
+        });
+
+        // ✅ idle + transition to avoid UI freeze
+        runIdle(() => {
+          startTransition(() => {
+            setBlogs(transformed);
+            setTotalBlogs(total);
+          });
+        });
+      } catch (err: any) {
+        if (err?.name === "AbortError") return;
         console.error(err);
         setErrorBlogs("Failed to fetch blogs. Please try again later.");
       } finally {
@@ -218,6 +276,7 @@ const AdminDashboard: React.FC = () => {
     };
 
     fetchBlogs();
+    return () => controller.abort();
   }, []);
 
   // ---------- Fetch Leads Stats ----------
@@ -228,7 +287,10 @@ const AdminDashboard: React.FC = () => {
         const res = await fetch("/api/admin/leads/stats", { cache: "no-store" });
         if (!res.ok) throw new Error("Failed stats");
         const data = await res.json();
-        setStats({ dailyLeads: data.dailyLeads ?? [], dailyResponses: data.dailyResponses ?? [] });
+        setStats({
+          dailyLeads: data.dailyLeads ?? [],
+          dailyResponses: data.dailyResponses ?? [],
+        });
         setTotalLeads(data.totalLeads ?? 0);
         setTotalResponses(data.totalResponses ?? 0);
       } catch (error) {
@@ -242,35 +304,73 @@ const AdminDashboard: React.FC = () => {
 
   // ---------- Fetch Submissions & Responses ----------
   useEffect(() => {
+    const controller = new AbortController();
+
     const fetchData = async () => {
       setSubsLoading(true);
       setSubsError(null);
       try {
         const [subRes, respRes] = await Promise.all([
-          fetch("/api/admin/leads/submissions", { cache: "no-store" }),
-          fetch("/api/admin/leads/responses", { cache: "no-store" }),
+          fetch("/api/admin/leads/submissions", {
+            cache: "no-store",
+            signal: controller.signal,
+          }),
+          fetch("/api/admin/leads/responses", {
+            cache: "no-store",
+            signal: controller.signal,
+          }),
         ]);
 
-        if (!subRes.ok || !respRes.ok) throw new Error("Failed submissions/responses");
+        if (!subRes.ok || !respRes.ok)
+          throw new Error("Failed submissions/responses");
 
-        const [subData, respData] = await Promise.all([subRes.json(), respRes.json()]);
-        setSubmissions(subData ?? []);
-        setResponses((respData ?? []).slice(0, 5));
-        setSubsPage(1); // নতুন ডাটা এলে page reset
-      } catch (e) {
+        const [subData, respData] = await Promise.all([
+          subRes.json(),
+          respRes.json(),
+        ]);
+
+        runIdle(() => {
+          startTransition(() => {
+            setSubmissions(subData ?? []);
+            setResponses((respData ?? []).slice(0, 5));
+            setSubsPage(1);
+          });
+        });
+      } catch (e: any) {
+        if (e?.name === "AbortError") return;
         console.error("Failed to load submissions/responses", e);
         setSubsError("Failed to load submissions.");
       } finally {
         setSubsLoading(false);
       }
     };
+
     fetchData();
+    return () => controller.abort();
   }, []);
 
-  // ---------- Derived / memoized data ----------
+  // ✅ Precompute submissions date ONCE
+  const submissionsWithDate = useMemo(
+    () =>
+      submissions.map((l) => ({
+        ...l,
+        _d: new Date(l.createdAt),
+        _createdFmt: new Date(l.createdAt).toLocaleDateString(),
+      })),
+    [submissions]
+  );
 
+  const blogDates = useMemo(
+    () => blogs.map((b) => b._d).filter((d): d is Date => !!d),
+    [blogs]
+  );
+
+  // ---------- Derived / memoized data ----------
   const recentBlogs = useMemo(() => blogs.slice(0, 5), [blogs]);
-  const recentSubmissions = useMemo(() => submissions.slice(0, 5), [submissions]);
+  const recentSubmissions = useMemo(
+    () => submissionsWithDate.slice(0, 5),
+    [submissionsWithDate]
+  );
 
   const weeklyPerformanceData = useMemo(
     () =>
@@ -282,7 +382,6 @@ const AdminDashboard: React.FC = () => {
     [stats.dailyLeads, stats.dailyResponses]
   );
 
-  // KPI (IP-based)
   const {
     totalVisitorsValue,
     totalVisitorsTrend,
@@ -300,32 +399,47 @@ const AdminDashboard: React.FC = () => {
     const nextMonthStart = addMonths(thisMonthStart, 1);
     const lastMonthStart = addMonths(thisMonthStart, -1);
 
-    const leadsWithDate = submissions.map((l) => ({ ...l, _d: new Date(l.createdAt) }));
-
     const totalVisitorsValue = uniq(submissions, (l) => l.fromIp);
 
-    const last30Leads = leadsWithDate.filter((l) => between(l._d, last30Start, now));
-    const prev30Leads = leadsWithDate.filter((l) => between(l._d, prev30Start, prev30End));
+    const last30Leads = submissionsWithDate.filter((l) =>
+      between(l._d, last30Start, now)
+    );
+    const prev30Leads = submissionsWithDate.filter((l) =>
+      between(l._d, prev30Start, prev30End)
+    );
+
     const last30Unique = uniq(last30Leads, (l) => l.fromIp);
     const prev30Unique = uniq(prev30Leads, (l) => l.fromIp);
     const totalVisitorsTrend = pctChange(last30Unique, prev30Unique);
 
-    const thisMonthLeads = leadsWithDate.filter((l) => between(l._d, thisMonthStart, nextMonthStart));
-    const lastMonthLeads = leadsWithDate.filter((l) => between(l._d, lastMonthStart, thisMonthStart));
+    const thisMonthLeads = submissionsWithDate.filter((l) =>
+      between(l._d, thisMonthStart, nextMonthStart)
+    );
+    const lastMonthLeads = submissionsWithDate.filter((l) =>
+      between(l._d, lastMonthStart, thisMonthStart)
+    );
+
     const thisMonthVisitorsValue = uniq(thisMonthLeads, (l) => l.fromIp);
     const lastMonthUnique = uniq(lastMonthLeads, (l) => l.fromIp);
-    const thisMonthVisitorsTrend = pctChange(thisMonthVisitorsValue, lastMonthUnique);
+    const thisMonthVisitorsTrend = pctChange(
+      thisMonthVisitorsValue,
+      lastMonthUnique
+    );
 
-    const blogDates = blogs
-      .map((b) => (b.createdAt ? new Date(b.createdAt) : null))
-      .filter((d): d is Date => !!d && !isNaN(d.getTime()));
-    const last30Blogs = blogDates.filter((d) => between(d, last30Start, now)).length;
-    const prev30Blogs = blogDates.filter((d) => between(d, prev30Start, prev30End)).length;
+    const last30Blogs = blogDates.filter((d) =>
+      between(d, last30Start, now)
+    ).length;
+    const prev30Blogs = blogDates.filter((d) =>
+      between(d, prev30Start, prev30End)
+    ).length;
     const totalBlogsTrend = pctChange(last30Blogs, prev30Blogs);
 
     const submissionsLast30 = last30Leads.length;
     const submissionsPrev30 = prev30Leads.length;
-    const totalSubmissionsTrend = pctChange(submissionsLast30, submissionsPrev30);
+    const totalSubmissionsTrend = pctChange(
+      submissionsLast30,
+      submissionsPrev30
+    );
 
     return {
       totalVisitorsValue,
@@ -335,9 +449,8 @@ const AdminDashboard: React.FC = () => {
       totalBlogsTrend,
       totalSubmissionsTrend,
     };
-  }, [submissions, blogs]);
+  }, [submissions, submissionsWithDate, blogDates]);
 
-  // Visitor Distribution (Top 10 states by unique IP)
   const visitorDistribution = useMemo(() => {
     const map = new Map<string, Set<string>>();
     for (const l of submissions) {
@@ -356,7 +469,6 @@ const AdminDashboard: React.FC = () => {
     return rows.slice(0, 10);
   }, [submissions]);
 
-  // Submissions table pagination (big performance win)
   const totalSubsPages = useMemo(
     () => Math.max(1, Math.ceil(submissions.length / SUBS_PAGE_SIZE)),
     [submissions.length]
@@ -364,23 +476,27 @@ const AdminDashboard: React.FC = () => {
 
   const pagedSubmissions = useMemo(
     () =>
-      submissions.slice(
+      submissionsWithDate.slice(
         (subsPage - 1) * SUBS_PAGE_SIZE,
         subsPage * SUBS_PAGE_SIZE
       ),
-    [submissions, subsPage]
+    [submissionsWithDate, subsPage]
   );
 
-  const handleSubsPageChange = (dir: "prev" | "next") => {
-    setSubsPage((prev) => {
-      if (dir === "prev") return Math.max(1, prev - 1);
-      return Math.min(totalSubsPages, prev + 1);
-    });
-  };
+  const handleSubsPageChange = useCallback(
+    (dir: "prev" | "next") => {
+      setSubsPage((prev) => {
+        if (dir === "prev") return Math.max(1, prev - 1);
+        return Math.min(totalSubsPages, prev + 1);
+      });
+    },
+    [totalSubsPages]
+  );
 
   // ---------- Blog actions ----------
-  const handleDeleteClick = async (id: number) => {
-    if (!window.confirm("Are you sure you want to delete this blog post?")) return;
+  const handleDeleteClick = useCallback(async (id: number) => {
+    if (!window.confirm("Are you sure you want to delete this blog post?"))
+      return;
     try {
       const resp = await fetch("/api/blogpost", {
         method: "DELETE",
@@ -388,24 +504,26 @@ const AdminDashboard: React.FC = () => {
         body: JSON.stringify({ id }),
       });
       if (!resp.ok) throw new Error("Delete failed");
-      setBlogs((prev) => prev.filter((b) => b.id !== id));
-      setTotalBlogs((t) => Math.max(0, t - 1));
+      startTransition(() => {
+        setBlogs((prev) => prev.filter((b) => b.id !== id));
+        setTotalBlogs((t) => Math.max(0, t - 1));
+      });
     } catch {
       alert("Failed to delete blog post. Please try again.");
     }
-  };
+  }, []);
 
-  const handleEditClick = (blog: Blog) => {
+  const handleEditClick = useCallback((blog: Blog) => {
     setEditBlogData(blog);
     setIsEditModalVisible(true);
-  };
+  }, []);
 
-  const handleEditClose = () => {
+  const handleEditClose = useCallback(() => {
     setIsEditModalVisible(false);
     setEditBlogData(null);
-  };
+  }, []);
 
-  const handleEditSave = async (updatedBlog: Blog) => {
+  const handleEditSave = useCallback(async (updatedBlog: Blog) => {
     try {
       const resp = await fetch("/api/blogpost", {
         method: "PUT",
@@ -417,16 +535,29 @@ const AdminDashboard: React.FC = () => {
         }),
       });
       if (!resp.ok) throw new Error("Update failed");
-      setBlogs((prev) => prev.map((b) => (b.id === updatedBlog.id ? { ...b, ...updatedBlog } : b)));
-      setIsEditModalVisible(false);
-      setEditBlogData(null);
+
+      startTransition(() => {
+        setBlogs((prev) =>
+          prev.map((b) =>
+            b.id === updatedBlog.id ? { ...b, ...updatedBlog } : b
+          )
+        );
+        setIsEditModalVisible(false);
+        setEditBlogData(null);
+      });
     } catch {
       alert("Failed to update blog post. Please try again.");
     }
-  };
+  }, []);
 
-  const fmt = (v: any) => (v === null || v === undefined || v === "" ? "—" : String(v));
-  const fmtDate = (iso?: string | null) => (iso ? new Date(iso).toLocaleDateString() : "—");
+  const fmt = useCallback(
+    (v: any) => (v === null || v === undefined || v === "" ? "—" : String(v)),
+    []
+  );
+  const fmtDate = useCallback(
+    (iso?: string | null) => (iso ? new Date(iso).toLocaleDateString() : "—"),
+    []
+  );
 
   return (
     <div className="p-6 bg-gray-50 min-h-screen">
@@ -438,7 +569,7 @@ const AdminDashboard: React.FC = () => {
           trend={totalVisitorsTrend}
           icon={<FaEye className="text-xl text-blue-500" />}
           color="bg-blue-100"
-          loading={subsLoading}
+          loading={subsLoading || isPending}
         />
         <StatCard
           title="This Month (Unique IPs)"
@@ -446,7 +577,7 @@ const AdminDashboard: React.FC = () => {
           trend={thisMonthVisitorsTrend}
           icon={<FaChartLine className="text-xl text-purple-500" />}
           color="bg-purple-100"
-          loading={subsLoading}
+          loading={subsLoading || isPending}
         />
         <StatCard
           title="Total Blogs"
@@ -454,7 +585,7 @@ const AdminDashboard: React.FC = () => {
           trend={totalBlogsTrend}
           icon={<FaBlog className="text-xl text-green-500" />}
           color="bg-green-100"
-          loading={isLoadingBlogs}
+          loading={isLoadingBlogs || isPending}
         />
         <StatCard
           title="Total Submissions"
@@ -466,9 +597,9 @@ const AdminDashboard: React.FC = () => {
         />
       </section>
 
-      {/* Charts Section */}
+      {/* Charts */}
       <section className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8">
-        {/* Analytics Chart */}
+        {/* Weekly Performance */}
         <div className="bg-white p-6 rounded-xl shadow-sm">
           <div className="flex justify-between items-center mb-6">
             <h2 className="text-xl font-semibold text-gray-800 flex items-center gap-2">
@@ -480,47 +611,24 @@ const AdminDashboard: React.FC = () => {
               <option>Last 90 days</option>
             </select>
           </div>
+
           {statsLoading ? (
             <SkeletonBox className="h-[300px] w-full" />
           ) : (
             <ResponsiveContainer width="100%" height={300}>
-              <ComposedChart
-                data={weeklyPerformanceData}
-                margin={{ top: 10, right: 10, left: 0, bottom: 10 }}
-              >
-                <defs>
-                  <linearGradient id="leadGradient" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="5%" stopColor="#6366f1" stopOpacity={0.9} />
-                    <stop offset="95%" stopColor="#6366f1" stopOpacity={0.1} />
-                  </linearGradient>
-                  <linearGradient id="responseGradient" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="5%" stopColor="#10b981" stopOpacity={0.8} />
-                    <stop offset="95%" stopColor="#10b981" stopOpacity={0.1} />
-                  </linearGradient>
-                </defs>
-                <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f3f4f6" />
-                <XAxis dataKey="date" tick={{ fontSize: 12, fill: "#6b7280" }} axisLine={false} tickLine={false} />
-                <YAxis allowDecimals={false} tick={{ fontSize: 12, fill: "#6b7280" }} axisLine={false} tickLine={false} />
-                <Tooltip
-                  contentStyle={{
-                    backgroundColor: "#fff",
-                    border: "none",
-                    borderRadius: "8px",
-                    boxShadow:
-                      "0 4px 6px -1px rgba(0,0,0,0.1), 0 2px 4px -1px rgba(0,0,0,0.06)",
-                  }}
-                  labelStyle={{ color: "#374151", fontWeight: "bold" }}
-                  itemStyle={{ fontSize: "14px", color: "#4b5563" }}
-                />
-                <Legend verticalAlign="top" height={36} iconType="circle" wrapperStyle={{ paddingBottom: "16px" }} />
-                <Bar dataKey="leads" fill="url(#leadGradient)" radius={[4, 4, 0, 0]} name="Submissions" barSize={24} />
+              <ComposedChart data={weeklyPerformanceData}>
+                <CartesianGrid strokeDasharray="3 3" vertical={false} />
+                <XAxis dataKey="date" axisLine={false} tickLine={false} />
+                <YAxis allowDecimals={false} axisLine={false} tickLine={false} />
+                <Tooltip />
+                <Legend verticalAlign="top" height={36} iconType="circle" />
+                <Bar dataKey="leads" fill="#6366f1" radius={[4, 4, 0, 0]} />
                 <Area
                   type="monotone"
                   dataKey="responses"
-                  fill="url(#responseGradient)"
+                  fill="#10b981"
                   stroke="#10b981"
                   strokeWidth={2}
-                  name="Responses"
                 />
               </ComposedChart>
             </ResponsiveContainer>
@@ -530,43 +638,27 @@ const AdminDashboard: React.FC = () => {
         {/* Visitor Distribution */}
         <div className="bg-white rounded-xl shadow-sm p-5">
           <h3 className="text-lg font-semibold text-gray-800 mb-4 flex items-center gap-2">
-            <FaGlobeAmericas className="text-indigo-500" /> Visitor Distribution (Top 10 States by Unique IP)
+            <FaGlobeAmericas className="text-indigo-500" /> Visitor Distribution
           </h3>
           <div className="h-[300px]">
             {subsLoading ? (
               <SkeletonBox className="h-full w-full" />
             ) : subsError ? (
-              <div className="h-full flex items-center justify-center text-red-500">{subsError}</div>
+              <div className="h-full flex items-center justify-center text-red-500">
+                {subsError}
+              </div>
             ) : visitorDistribution.length === 0 ? (
-              <div className="h-full flex items-center justify-center text-gray-500">No data</div>
+              <div className="h-full flex items-center justify-center text-gray-500">
+                No data
+              </div>
             ) : (
               <ResponsiveContainer width="100%" height="100%">
-                <BarChart
-                  data={visitorDistribution}
-                  layout="vertical"
-                  margin={{ top: 10, right: 10, left: 10, bottom: 10 }}
-                >
-                  <CartesianGrid strokeDasharray="3 3" horizontal={false} stroke="#f3f4f6" />
-                  <XAxis type="number" allowDecimals={false} tick={{ fontSize: 12, fill: "#6b7280" }} />
-                  <YAxis
-                    dataKey="name"
-                    type="category"
-                    tick={{ fontSize: 12, fill: "#6b7280" }}
-                    width={100}
-                  />
-                  <Tooltip
-                    contentStyle={{
-                      backgroundColor: "#fff",
-                      border: "none",
-                      borderRadius: "8px",
-                      boxShadow:
-                        "0 4px 6px -1px rgba(0,0,0,0.1), 0 2px 4px -1px rgba(0,0,0,0.06)",
-                    }}
-                    labelStyle={{ color: "#374151", fontWeight: "bold" }}
-                    itemStyle={{ fontSize: "14px", color: "#4b5563" }}
-                    formatter={(v: any) => [`${v} unique IPs`, "Visitors"]}
-                  />
-                  <Bar dataKey="count" name="Visitors" radius={[0, 4, 4, 0]} fill="#6366f1" />
+                <BarChart data={visitorDistribution} layout="vertical">
+                  <CartesianGrid strokeDasharray="3 3" horizontal={false} />
+                  <XAxis type="number" allowDecimals={false} />
+                  <YAxis dataKey="name" type="category" width={100} />
+                  <Tooltip />
+                  <Bar dataKey="count" fill="#6366f1" radius={[0, 4, 4, 0]} />
                 </BarChart>
               </ResponsiveContainer>
             )}
@@ -574,12 +666,14 @@ const AdminDashboard: React.FC = () => {
         </div>
       </section>
 
-      {/* Two half tables */}
+      {/* TWO SMALL TABLES */}
       <section className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8">
-        {/* Submissions Table (recent 5) */}
+        {/* Recent Lead Submissions */}
         <div className="bg-white rounded-xl shadow-sm overflow-hidden">
           <div className="p-5 border-b border-gray-200 flex justify-between items-center">
-            <h2 className="text-lg font-semibold text-gray-800">Recent Lead Submissions</h2>
+            <h2 className="text-lg font-semibold text-gray-800">
+              Recent Lead Submissions
+            </h2>
             <span className="text-xs bg-blue-100 text-blue-800 py-1 px-2 rounded-full">
               {recentSubmissions.length}
             </span>
@@ -599,13 +693,15 @@ const AdminDashboard: React.FC = () => {
                 <tbody className="divide-y divide-gray-200">
                   {recentSubmissions.length > 0 ? (
                     recentSubmissions.map((lead) => (
-                      <tr key={lead.id} className="hover:bg-gray-50 transition-colors">
+                      <tr key={lead.id}>
                         <td className="px-5 py-4 whitespace-nowrap">
                           {lead.firstName} {lead.lastName}
                         </td>
-                        <td className="px-5 py-4 whitespace-nowrap">{lead.email || "—"}</td>
                         <td className="px-5 py-4 whitespace-nowrap">
-                          {new Date(lead.createdAt).toLocaleDateString()}
+                          {lead.email || "—"}
+                        </td>
+                        <td className="px-5 py-4 whitespace-nowrap">
+                          {lead._createdFmt}
                         </td>
                       </tr>
                     ))
@@ -622,10 +718,12 @@ const AdminDashboard: React.FC = () => {
           </div>
         </div>
 
-        {/* Responses Table */}
+        {/* Recent Lead Responses */}
         <div className="bg-white rounded-xl shadow-sm overflow-hidden">
           <div className="p-5 border-b border-gray-200 flex justify-between items-center">
-            <h2 className="text-lg font-semibold text-gray-800">Recent Lead Responses</h2>
+            <h2 className="text-lg font-semibold text-gray-800">
+              Recent Lead Responses
+            </h2>
             <span className="text-xs bg-green-100 text-green-800 py-1 px-2 rounded-full">
               {responses.length}
             </span>
@@ -645,7 +743,7 @@ const AdminDashboard: React.FC = () => {
                 <tbody className="divide-y divide-gray-200">
                   {responses.length > 0 ? (
                     responses.map((leadId: any, index: number) => (
-                      <tr key={index} className="hover:bg-gray-50 transition-colors">
+                      <tr key={index}>
                         <td className="px-5 py-4 whitespace-nowrap">#{leadId}</td>
                         <td className="px-5 py-4 whitespace-nowrap">
                           <span className="px-2 py-1 bg-green-100 text-green-800 text-xs rounded-full">
@@ -669,11 +767,13 @@ const AdminDashboard: React.FC = () => {
         </div>
       </section>
 
-      {/* Full submissions table (lazy loaded section) */}
+      {/* Full submissions table */}
       <section className="mb-8" ref={fullSubsRef}>
         <div className="bg-white rounded-xl shadow-sm overflow-hidden">
           <div className="p-5 border-b border-gray-200 flex justify-between items-center">
-            <h2 className="text-lg font-semibold text-gray-800">Calculate Form Submissions User</h2>
+            <h2 className="text-lg font-semibold text-gray-800">
+              Calculate Form Submissions User
+            </h2>
             <span className="text-xs bg-indigo-100 text-indigo-800 py-1 px-2 rounded-full">
               {submissions.length}
             </span>
@@ -686,7 +786,9 @@ const AdminDashboard: React.FC = () => {
           ) : subsError ? (
             <div className="p-6 text-center text-red-500">{subsError}</div>
           ) : submissions.length === 0 ? (
-            <div className="p-6 text-center text-gray-500">No submissions found.</div>
+            <div className="p-6 text-center text-gray-500">
+              No submissions found.
+            </div>
           ) : (
             <>
               <div className="overflow-x-auto">
@@ -713,7 +815,7 @@ const AdminDashboard: React.FC = () => {
                   </thead>
                   <tbody className="divide-y divide-gray-200">
                     {pagedSubmissions.map((lead) => (
-                      <tr key={lead.id} className="hover:bg-gray-50 transition-colors">
+                      <tr key={lead.id}>
                         <td className="px-4 py-3 whitespace-nowrap">#{lead.id}</td>
                         <td className="px-4 py-3 whitespace-nowrap">
                           {fmt(lead.firstName)} {fmt(lead.lastName)}
@@ -731,14 +833,13 @@ const AdminDashboard: React.FC = () => {
                         <td className="px-4 py-3 whitespace-nowrap">{fmtDate(lead.moveDate)}</td>
                         <td className="px-4 py-3 whitespace-nowrap">{fmt(lead.moveSize)}</td>
                         <td className="px-4 py-3 whitespace-nowrap">{fmt(lead.fromIp)}</td>
-                        <td className="px-4 py-3 whitespace-nowrap">{fmtDate(lead.createdAt)}</td>
+                        <td className="px-4 py-3 whitespace-nowrap">{lead._createdFmt}</td>
                       </tr>
                     ))}
                   </tbody>
                 </table>
               </div>
 
-              {/* Pagination controls for submissions */}
               <div className="flex items-center justify-between px-4 py-3 border-t border-gray-200 text-xs text-gray-600">
                 <div>
                   Showing{" "}
@@ -746,7 +847,7 @@ const AdminDashboard: React.FC = () => {
                     {(subsPage - 1) * SUBS_PAGE_SIZE + 1}-
                     {Math.min(subsPage * SUBS_PAGE_SIZE, submissions.length)}
                   </span>{" "}
-                  of <span className="font-semibold">{submissions.length}</span> submissions
+                  of <span className="font-semibold">{submissions.length}</span>
                 </div>
                 <div className="flex gap-2">
                   <button
@@ -782,18 +883,20 @@ const AdminDashboard: React.FC = () => {
         </div>
       </section>
 
-      {/* Recent Blogs Section */}
+      {/* Recent Blogs (✅ Status column removed) */}
       <section className="mb-8">
         <div className="bg-white rounded-xl shadow-sm overflow-hidden">
           <div className="p-5 border-b border-gray-200 flex justify-between items-center">
-            <h2 className="text-lg font-semibold text-gray-800">Recent Blog Posts</h2>
+            <h2 className="text-lg font-semibold text-gray-800">
+              Recent Blog Posts
+            </h2>
             <button className="px-4 py-2 bg-indigo-600 text-white rounded-lg text-sm font-medium hover:bg-indigo-700 transition-colors">
               Add New Post
             </button>
           </div>
           <div className="overflow-x-auto">
             {isLoadingBlogs ? (
-              <TableSkeleton rows={5} cols={4} />
+              <TableSkeleton rows={5} cols={3} />
             ) : errorBlogs ? (
               <div className="p-6 text-center text-red-500">{errorBlogs}</div>
             ) : (
@@ -801,27 +904,18 @@ const AdminDashboard: React.FC = () => {
                 <thead className="bg-gray-50 text-xs uppercase text-gray-500">
                   <tr>
                     <th className="px-5 py-3 text-left">Title</th>
-                    <th className="px-5 py-3 text-left">Status</th>
                     <th className="px-5 py-3 text-left">Comments</th>
                     <th className="px-5 py-3 text-left">Actions</th>
                   </tr>
                 </thead>
+
                 <tbody className="divide-y divide-gray-200">
                   {recentBlogs.map((blog) => (
-                    <tr key={blog.id} className="hover:bg-gray-50 transition-colors">
+                    <tr key={blog.id}>
                       <td className="px-5 py-4">
-                        <p className="font-medium text-gray-900 line-clamp-1">{blog.post_title}</p>
-                      </td>
-                      <td className="px-5 py-4">
-                        <span
-                          className={`px-2 py-1 rounded-full text-xs font-medium ${
-                            blog.post_status === "publish"
-                              ? "bg-green-100 text-green-800"
-                              : "bg-yellow-100 text-yellow-800"
-                          }`}
-                        >
-                          {blog.post_status}
-                        </span>
+                        <p className="font-medium text-gray-900 line-clamp-1">
+                          {blog.post_title}
+                        </p>
                       </td>
                       <td className="px-5 py-4">
                         <span
@@ -861,7 +955,7 @@ const AdminDashboard: React.FC = () => {
         </div>
       </section>
 
-      {/* Edit Blog Modal */}
+      {/* Edit Modal */}
       {isEditModalVisible && editBlogData && (
         <div
           className="fixed inset-0 bg-black bg-opacity-50 flex justify-center items-center z-50 p-4"
@@ -874,58 +968,85 @@ const AdminDashboard: React.FC = () => {
             onClick={(e) => e.stopPropagation()}
           >
             <div className="flex justify-between items-center p-5 border-b border-gray-200">
-              <h2 className="text-xl font-semibold text-gray-800">Edit Blog Post</h2>
-              <button onClick={handleEditClose} className="text-gray-400 hover:text-gray-600 transition-colors">
-                <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                </svg>
+              <h2 className="text-xl font-semibold text-gray-800">
+                Edit Blog Post
+              </h2>
+              <button
+                onClick={handleEditClose}
+                className="text-gray-400 hover:text-gray-600 transition-colors"
+              >
+                ✕
               </button>
             </div>
+
             <div className="p-5 space-y-4">
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Post Title</label>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Post Title
+                </label>
                 <input
                   type="text"
                   value={editBlogData.post_title}
-                  onChange={(e) => setEditBlogData({ ...editBlogData, post_title: e.target.value })}
-                  className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
-                  placeholder="Post Title"
+                  onChange={(e) =>
+                    setEditBlogData({
+                      ...editBlogData,
+                      post_title: e.target.value,
+                    })
+                  }
+                  className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500"
                 />
               </div>
+
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Post Status</label>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Post Status
+                </label>
                 <select
                   value={editBlogData.post_status}
-                  onChange={(e) => setEditBlogData({ ...editBlogData, post_status: e.target.value })}
-                  className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+                  onChange={(e) =>
+                    setEditBlogData({
+                      ...editBlogData,
+                      post_status: e.target.value,
+                    })
+                  }
+                  className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500"
                 >
                   <option value="publish">Published</option>
                   <option value="draft">Draft</option>
                   <option value="pending">Pending Review</option>
                 </select>
               </div>
+
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Comment Status</label>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Comment Status
+                </label>
                 <select
                   value={editBlogData.comment_status}
-                  onChange={(e) => setEditBlogData({ ...editBlogData, comment_status: e.target.value })}
-                  className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+                  onChange={(e) =>
+                    setEditBlogData({
+                      ...editBlogData,
+                      comment_status: e.target.value,
+                    })
+                  }
+                  className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500"
                 >
                   <option value="open">Open</option>
                   <option value="closed">Closed</option>
                 </select>
               </div>
             </div>
+
             <div className="flex justify-end gap-3 p-5 border-t border-gray-200">
               <button
                 onClick={handleEditClose}
-                className="px-4 py-2 text-gray-700 border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors"
+                className="px-4 py-2 text-gray-700 border rounded-lg hover:bg-gray-50"
               >
                 Cancel
               </button>
               <button
-                onClick={() => editBlogData && handleEditSave(editBlogData)}
-                className="px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-colors"
+                onClick={() => handleEditSave(editBlogData)}
+                className="px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700"
               >
                 Save Changes
               </button>
@@ -946,32 +1067,47 @@ interface StatCardProps {
   loading?: boolean;
 }
 
-const StatCard: React.FC<StatCardProps> = ({ title, value, trend, icon, color, loading }) => (
-  <div className="bg-white rounded-xl shadow-sm p-5 hover:shadow-md transition-shadow">
-    <div className="flex justify-between items-start">
-      <div className="flex-1">
-        <p className="text-sm font-medium text-gray-600">{title}</p>
-        <div className="mt-1">
-          {loading ? (
-            <SkeletonBox className="h-7 w-20" />
-          ) : (
-            <h3 className="text-2xl font-bold text-gray-800">{value}</h3>
+const StatCard: React.FC<StatCardProps> = React.memo(function StatCard({
+  title,
+  value,
+  trend,
+  icon,
+  color,
+  loading,
+}) {
+  return (
+    <div className="bg-white rounded-xl shadow-sm p-5 hover:shadow-md transition-shadow">
+      <div className="flex justify-between items-start">
+        <div className="flex-1">
+          <p className="text-sm font-medium text-gray-600">{title}</p>
+          <div className="mt-1">
+            {loading ? (
+              <SkeletonBox className="h-7 w-20" />
+            ) : (
+              <h3 className="text-2xl font-bold text-gray-800">{value}</h3>
+            )}
+          </div>
+
+          {!loading && trend && (
+            <span
+              className={`text-xs font-medium mt-1 flex items-center ${
+                trend.isPositive ? "text-green-600" : "text-red-600"
+              }`}
+            >
+              {trend.isPositive ? (
+                <FaArrowUp className="mr-1" />
+              ) : (
+                <FaArrowDown className="mr-1" />
+              )}
+              {trend.value}
+            </span>
           )}
         </div>
-        {!loading && trend && (
-          <span
-            className={`text-xs font-medium mt-1 flex items-center ${
-              trend.isPositive ? "text-green-600" : "text-red-600"
-            }`}
-          >
-            {trend.isPositive ? <FaArrowUp className="mr-1" /> : <FaArrowDown className="mr-1" />}
-            {trend.value}
-          </span>
-        )}
+        <div className={`p-3 rounded-lg ${color}`}>{icon}</div>
       </div>
-      <div className={`p-3 rounded-lg ${color}`}>{icon}</div>
     </div>
-  </div>
-);
+  );
+});
+StatCard.displayName = "StatCard";
 
 export default AdminDashboard;
