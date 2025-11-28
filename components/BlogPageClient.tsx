@@ -1,6 +1,13 @@
 "use client";
 
-import React, { useState, useEffect, useMemo, useTransition, useCallback } from "react";
+import React, {
+  useState,
+  useEffect,
+  useMemo,
+  useTransition,
+  useCallback,
+  useRef,
+} from "react";
 import Link from "next/link";
 import Image from "next/image";
 
@@ -123,57 +130,85 @@ export default function BlogPageClient({
   initialMeta: BlogResponse["meta"];
   postsPerPage: number;
 }) {
+  const initialPage = initialMeta.page || 1;
+
   const [blogs, setBlogs] = useState<Blog[]>(initialBlogs);
-  const [currentPage, setCurrentPage] = useState(initialMeta.page || 1);
+  const [currentPage, setCurrentPage] = useState(initialPage);
   const [totalPages, setTotalPages] = useState(initialMeta.totalPages || 1);
 
-  const [initialLoading] = useState(false); // ✅ first render already has data
   const [pageLoading, setPageLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-
   const [isPending, startTransition] = useTransition();
 
-  const fetchPage = useCallback(async (page: number, controller: AbortController) => {
-    setError(null);
-    setPageLoading(true);
+  // ✅ only skip fetch on FIRST render
+  const didMountRef = useRef(false);
 
-    try {
-      const res = await fetch(
-        `/api/blogpost?page=${page}&limit=${postsPerPage}`,
-        { signal: controller.signal, cache: "no-store" }
-      );
-      if (!res.ok) throw new Error("Failed to fetch blogs");
-      const json: BlogResponse = await res.json();
+  // ✅ cache pages for instant back/forward
+  const pageCacheRef = useRef<Map<number, Blog[]>>(new Map());
+  pageCacheRef.current.set(initialPage, initialBlogs);
 
-      startTransition(() => {
-        setBlogs(json.data || []);
-        setTotalPages(json.meta?.totalPages || 1);
-      });
+  const fetchPage = useCallback(
+    async (page: number, controller: AbortController) => {
+      setError(null);
+      setPageLoading(true);
 
-      // ✅ prefetch next page silently (faster next click)
-      if (page < (json.meta?.totalPages || 1)) {
-        fetch(`/api/blogpost?page=${page + 1}&limit=${postsPerPage}`, {
-          cache: "no-store",
-        }).catch(() => {});
+      try {
+        const res = await fetch(
+          `/api/blogpost?page=${page}&limit=${postsPerPage}`,
+          { signal: controller.signal, cache: "no-store" }
+        );
+        if (!res.ok) throw new Error("Failed to fetch blogs");
+
+        const json: BlogResponse = await res.json();
+
+        pageCacheRef.current.set(page, json.data || []);
+
+        startTransition(() => {
+          setBlogs(json.data || []);
+          setTotalPages(json.meta?.totalPages || 1);
+        });
+
+        // ✅ prefetch next page silently
+        if (page < (json.meta?.totalPages || 1)) {
+          fetch(`/api/blogpost?page=${page + 1}&limit=${postsPerPage}`, {
+            cache: "no-store",
+          })
+            .then(r => r.json())
+            .then((nextJson: BlogResponse) => {
+              pageCacheRef.current.set(page + 1, nextJson.data || []);
+            })
+            .catch(() => {});
+        }
+      } catch (e: any) {
+        if (e.name !== "AbortError") {
+          console.error(e);
+          setError("Failed to load articles. Please check your connection.");
+        }
+      } finally {
+        setPageLoading(false);
       }
-    } catch (e: any) {
-      if (e.name !== "AbortError") {
-        console.error(e);
-        setError("Failed to load articles. Please check your connection.");
-      }
-    } finally {
-      setPageLoading(false);
-    }
-  }, [postsPerPage, startTransition]);
+    },
+    [postsPerPage, startTransition]
+  );
 
   useEffect(() => {
-    // currentPage=1 (server) হলে আর fetch লাগবে না
-    if (currentPage === initialMeta.page) return;
+    // ✅ first render skip
+    if (!didMountRef.current) {
+      didMountRef.current = true;
+      return;
+    }
+
+    // ✅ serve from cache if exists
+    const cached = pageCacheRef.current.get(currentPage);
+    if (cached) {
+      startTransition(() => setBlogs(cached));
+      return;
+    }
 
     const controller = new AbortController();
     fetchPage(currentPage, controller);
     return () => controller.abort();
-  }, [currentPage, fetchPage, initialMeta.page]);
+  }, [currentPage, fetchPage, startTransition]);
 
   const paginate = (p: number) => {
     if (p < 1 || p > totalPages) return;
@@ -189,26 +224,16 @@ export default function BlogPageClient({
       return [1, 2, 3, "...", totalPages];
     if (currentPage > totalPages - maxVisiblePages)
       return [1, "...", totalPages - 2, totalPages - 1, totalPages];
-    return [1, "...", currentPage - 1, currentPage, currentPage + 1, "...", totalPages];
+    return [
+      1,
+      "...",
+      currentPage - 1,
+      currentPage,
+      currentPage + 1,
+      "...",
+      totalPages,
+    ];
   };
-
-  if (initialLoading) {
-    return (
-      <div className="bg-gray-50 min-h-screen py-16">
-        <div className="container mx-auto px-4 max-w-7xl">
-          <div className="text-center mb-12">
-            <div className="h-10 w-52 bg-gray-200 rounded-lg mx-auto mb-3 animate-pulse" />
-            <div className="h-4 w-80 bg-gray-200 rounded mx-auto animate-pulse" />
-          </div>
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-x-8 gap-y-12">
-            {Array.from({ length: 6 }).map((_, i) => (
-              <BlogCardSkeleton key={i} />
-            ))}
-          </div>
-        </div>
-      </div>
-    );
-  }
 
   if (error) {
     return (
@@ -240,9 +265,11 @@ export default function BlogPageClient({
         )}
 
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-x-8 gap-y-12">
-          {blogs.map((post) => (
-            <BlogCard key={post.id} post={post} />
-          ))}
+          {blogs.length === 0 && pageLoading
+            ? Array.from({ length: postsPerPage }).map((_, i) => (
+                <BlogCardSkeleton key={i} />
+              ))
+            : blogs.map((post) => <BlogCard key={post.id} post={post} />)}
         </div>
 
         {totalPages > 1 && (
