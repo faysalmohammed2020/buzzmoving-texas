@@ -11,6 +11,20 @@ import MovingCalculator from "./MovingCostCalculator";
 
 const HomePage = () => {
   const [isScrolling, setIsScrolling] = useState(false);
+  useEffect(() => {
+    // ✅ refresh / back-forward এ বারবার count না বাড়াতে sessionStorage guard
+    const key = "visited_home_session";
+    if (sessionStorage.getItem(key)) return;
+    sessionStorage.setItem(key, "1");
+
+    // ✅ page open হলেই count +1
+    fetch("/api/visits", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ slug: "home" }),
+      keepalive: true,
+    }).catch(() => {});
+  }, []);
 
   useEffect(() => {
     let scrollTimeout: NodeJS.Timeout;
