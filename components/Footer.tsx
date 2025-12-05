@@ -29,7 +29,7 @@ const Footer: React.FC = () => {
 
         {/* Copyright Section */}
         <p className="text-sm mb-4">
-          © 2024 Moving Quote Services. All Rights Reserved.
+          © 2025 Moving Quote Services. All Rights Reserved.
         </p>
 
         {/* Social Media Icons */}
