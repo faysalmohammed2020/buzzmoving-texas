@@ -14,7 +14,7 @@ const Footer: React.FC = () => {
             Services
           </Link>
           <Link
-            href="/about-us/testimonials"
+            href="/about-us/testimonial"
             className="mx-3 hover:text-gray-800"
           >
             About Us
