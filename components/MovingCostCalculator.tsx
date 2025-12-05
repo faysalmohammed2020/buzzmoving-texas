@@ -1,22 +1,34 @@
 "use client";
 
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import DatePicker from "react-datepicker";
 import "react-datepicker/dist/react-datepicker.css";
 import { toast } from "sonner";
+
+// ✅ BIG JSON: { "State": ["City1","City2",...] }
+import STATE_CITY_MAP from "@/app/data/states-cities.json";
+
+// টাইপ
+type StateCityMap = Record<string, string[]>;
+
+// ✅ US ZIP validation (5-digit OR ZIP+4)
+const usZipRegex = /^\d{5}(-\d{4})?$/;
 
 const MovingCalculator: React.FC = () => {
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [phone, setPhone] = useState("");
-  const [referer, setReferer] = useState("Direct"); // default to Direct
+  const [referer, setReferer] = useState("Direct");
   const [leadType, setLeadType] = useState("");
+
   const [fromZip, setFromZip] = useState("");
   const [fromCity, setFromCity] = useState("");
   const [fromState, setFromState] = useState("");
+
   const [toZip, setToZip] = useState("");
   const [toCity, setToCity] = useState("");
   const [toState, setToState] = useState("");
+
   const [movingType, setMovingType] = useState("");
   const [movingDate, setMovingDate] = useState<Date | null>(null);
   const [acceptedTerms, setAcceptedTerms] = useState(false);
@@ -33,18 +45,30 @@ const MovingCalculator: React.FC = () => {
     "Office move",
   ];
 
-  const usStates = ["Alaska"];
-  const zipCodes = ["99501", "99502", "99503", "99504", "99505", "99506"];
-  const cities = ["Anchorage", "Fairbanks", "Juneau", "Sitka", "Ketchikan", "Wasilla"];
+  // ✅ state list JSON থেকে
+  const usStates = useMemo(
+    () => Object.keys(STATE_CITY_MAP as StateCityMap),
+    []
+  );
+
+  // ✅ From cities JSON থেকে (array string)
+  const fromCities: string[] = useMemo(() => {
+    if (!fromState) return [];
+    return (STATE_CITY_MAP as StateCityMap)[fromState] || [];
+  }, [fromState]);
+
+  // ✅ To cities JSON থেকে
+  const toCities: string[] = useMemo(() => {
+    if (!toState) return [];
+    return (STATE_CITY_MAP as StateCityMap)[toState] || [];
+  }, [toState]);
 
   useEffect(() => {
     fetch("https://api.ipify.org?format=json")
       .then((res) => res.json())
       .then((data) => setFromIp(data.ip))
       .catch(() => {});
-    if (document.referrer) {
-      setReferer(document.referrer || "Direct");
-    }
+    if (document.referrer) setReferer(document.referrer || "Direct");
   }, []);
 
   useEffect(() => {
@@ -57,12 +81,28 @@ const MovingCalculator: React.FC = () => {
     if (submitting) return;
 
     const newErrors: Record<string, string> = {};
+
     if (!name) newErrors.name = "Name is required.";
+
     if (!email) newErrors.email = "Email is required.";
-    else if (!/\S+@\S+\.\S+/.test(email)) newErrors.email = "Invalid email format.";
+    else if (!/\S+@\S+\.\S+/.test(email))
+      newErrors.email = "Invalid email format.";
+
     if (!phone) newErrors.phone = "Phone is required.";
+
     if (!leadType) newErrors.leadType = "Lead type is required.";
+
     if (!acceptedTerms) newErrors.terms = "You must accept the Terms.";
+
+    // ✅ ONLY US ZIP format validation
+    if (!fromZip) newErrors.fromZip = "From ZIP is required.";
+    else if (!usZipRegex.test(fromZip))
+      newErrors.fromZip = "Enter a valid US ZIP (##### or #####-####).";
+
+    if (!toZip) newErrors.toZip = "To ZIP is required.";
+    else if (!usZipRegex.test(toZip))
+      newErrors.toZip = "Enter a valid US ZIP (##### or #####-####).";
+
     setErrors(newErrors);
 
     if (Object.keys(newErrors).length > 0) {
@@ -85,14 +125,17 @@ const MovingCalculator: React.FC = () => {
       last_name: lastName,
       email: email.trim().toLowerCase(),
       phone: phone.replace(/[^0-9]/g, ""),
+
       from_state: capitalizeWords(fromState),
       from_state_code: fromState.slice(0, 2).toUpperCase(),
       from_city: capitalizeWords(fromCity),
       from_zip: fromZip,
+
       to_state: capitalizeWords(toState),
       to_state_code: toState.slice(0, 2).toUpperCase(),
       to_city: capitalizeWords(toCity),
       to_zip: toZip,
+
       move_date: movingDate?.toISOString().split("T")[0] || "",
       move_size: movingType,
       car_make: "",
@@ -108,11 +151,9 @@ const MovingCalculator: React.FC = () => {
       });
 
       if (response.status === 409) {
-        // ❌ Duplicate email or phone — do not proceed or save
         toast.error("Email or phone no is duplicate.");
         return;
       }
-
       if (!response.ok) {
         toast.error("Failed to save form data.");
         return;
@@ -127,8 +168,10 @@ const MovingCalculator: React.FC = () => {
       } else {
         toast.error("An error occurred while submitting the form.");
       }
-    } catch (error) {
-      toast.error("There was an issue submitting the form. Please try again later.");
+    } catch {
+      toast.error(
+        "There was an issue submitting the form. Please try again later."
+      );
     } finally {
       setSubmitting(false);
     }
@@ -162,9 +205,7 @@ const MovingCalculator: React.FC = () => {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(result),
       });
-    } catch {
-      // silently ignore external API failure
-    }
+    } catch {}
   };
 
   const resetForm = () => {
@@ -183,11 +224,15 @@ const MovingCalculator: React.FC = () => {
     setErrors({});
   };
 
-  const capitalizeWords = (str: string) => str.replace(/\b\w/g, (char) => char.toUpperCase());
+  const capitalizeWords = (str: string) =>
+    str.replace(/\b\w/g, (char) => char.toUpperCase());
 
   return (
     <div className="bg-white text-black p-4 border border-gray-300 rounded-xl shadow-md text-sm">
-      <h2 className="text-xl font-bold text-center mb-4">Moving Cost Calculator</h2>
+      <h2 className="text-xl font-bold text-center mb-4">
+        Moving Cost Calculator
+      </h2>
+
       <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
         <input
           type="text"
@@ -196,6 +241,7 @@ const MovingCalculator: React.FC = () => {
           value={name}
           onChange={(e) => setName(e.target.value)}
         />
+
         <input
           type="email"
           placeholder="Email"
@@ -203,6 +249,7 @@ const MovingCalculator: React.FC = () => {
           value={email}
           onChange={(e) => setEmail(e.target.value)}
         />
+
         <input
           type="text"
           placeholder="Phone"
@@ -211,61 +258,99 @@ const MovingCalculator: React.FC = () => {
           onChange={(e) => setPhone(e.target.value)}
         />
 
-        <select className="p-2 border rounded" value={fromZip} onChange={(e) => setFromZip(e.target.value)}>
-          <option value="">From Zip</option>
-          {zipCodes.map((zip) => (
-            <option key={zip} value={zip}>
-              {zip}
-            </option>
-          ))}
-        </select>
-
-        <select className="p-2 border rounded" value={fromCity} onChange={(e) => setFromCity(e.target.value)}>
-          <option value="">From City</option>
-          {cities.map((city) => (
-            <option key={city} value={city}>
-              {city}
-            </option>
-          ))}
-        </select>
-
-        <select className="p-2 border rounded" value={fromState} onChange={(e) => setFromState(e.target.value)}>
+        {/* FROM STATE */}
+        <select
+          className="p-2 border rounded"
+          value={fromState}
+          onChange={(e) => {
+            setFromState(e.target.value);
+            setFromCity("");
+          }}
+        >
           <option value="">From State</option>
-          {usStates.map((state, i) => (
-            <option key={i} value={state}>
+          {usStates.map((state) => (
+            <option key={state} value={state}>
               {state}
             </option>
           ))}
         </select>
 
-        <select className="p-2 border rounded" value={toZip} onChange={(e) => setToZip(e.target.value)}>
-          <option value="">To Zip</option>
-          {zipCodes.map((zip) => (
-            <option key={zip} value={zip}>
-              {zip}
-            </option>
-          ))}
-        </select>
-
-        <select className="p-2 border rounded" value={toCity} onChange={(e) => setToCity(e.target.value)}>
-          <option value="">To City</option>
-          {cities.map((city) => (
+        {/* FROM CITY */}
+        <select
+          className="p-2 border rounded"
+          value={fromCity}
+          onChange={(e) => setFromCity(e.target.value)}
+          disabled={!fromState}
+        >
+          <option value="">From City</option>
+          {fromCities.map((city) => (
             <option key={city} value={city}>
               {city}
             </option>
           ))}
         </select>
 
-        <select className="p-2 border rounded" value={toState} onChange={(e) => setToState(e.target.value)}>
+        {/* FROM ZIP TEXT */}
+        <input
+          type="text"
+          placeholder="From ZIP"
+          className={`p-2 border rounded ${errors.fromZip ? "border-red-500" : ""}`}
+          value={fromZip}
+          onChange={(e) => setFromZip(e.target.value.trim())}
+        />
+        {errors.fromZip && (
+          <p className="text-red-500 text-xs -mt-2">{errors.fromZip}</p>
+        )}
+
+        {/* TO STATE */}
+        <select
+          className="p-2 border rounded"
+          value={toState}
+          onChange={(e) => {
+            setToState(e.target.value);
+            setToCity("");
+          }}
+        >
           <option value="">To State</option>
-          {usStates.map((state, i) => (
-            <option key={i} value={state}>
+          {usStates.map((state) => (
+            <option key={state} value={state}>
               {state}
             </option>
           ))}
         </select>
 
-        <select className="p-2 border rounded" value={movingType} onChange={(e) => setMovingType(e.target.value)}>
+        {/* TO CITY */}
+        <select
+          className="p-2 border rounded"
+          value={toCity}
+          onChange={(e) => setToCity(e.target.value)}
+          disabled={!toState}
+        >
+          <option value="">To City</option>
+          {toCities.map((city) => (
+            <option key={city} value={city}>
+              {city}
+            </option>
+          ))}
+        </select>
+
+        {/* TO ZIP TEXT */}
+        <input
+          type="text"
+          placeholder="To ZIP"
+          className={`p-2 border rounded ${errors.toZip ? "border-red-500" : ""}`}
+          value={toZip}
+          onChange={(e) => setToZip(e.target.value.trim())}
+        />
+        {errors.toZip && (
+          <p className="text-red-500 text-xs -mt-2">{errors.toZip}</p>
+        )}
+
+        <select
+          className="p-2 border rounded"
+          value={movingType}
+          onChange={(e) => setMovingType(e.target.value)}
+        >
           <option value="">Select Move Size</option>
           {movingOptions.map((option, index) => (
             <option key={index} value={option}>
@@ -285,7 +370,11 @@ const MovingCalculator: React.FC = () => {
         </div>
 
         <div className="col-span-1 md:col-span-2 flex items-center gap-2">
-          <input type="checkbox" checked={acceptedTerms} onChange={(e) => setAcceptedTerms(e.target.checked)} />
+          <input
+            type="checkbox"
+            checked={acceptedTerms}
+            onChange={(e) => setAcceptedTerms(e.target.checked)}
+          />
           <label className="text-sm">
             I accept the{" "}
             <a href="/terms" className="underline text-blue-600">

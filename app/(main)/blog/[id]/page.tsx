@@ -16,6 +16,9 @@ interface Blog {
   category?: string;
   tags?: string[] | string;
   post_status?: "draft" | "publish" | "private" | string;
+  imageUrl?: string;
+  excerpt?: string;
+  readTime?: number;
 }
 
 /* ---------- helpers ---------- */
@@ -56,6 +59,10 @@ export default function BlogPost() {
   const [post, setPost] = useState<Blog | null>(null);
   const [loading, setLoading] = useState(true);
 
+  // ✅ recent posts state
+  const [recentPosts, setRecentPosts] = useState<Blog[]>([]);
+  const [recentLoading, setRecentLoading] = useState(true);
+
   // === unified modal state ===
   const [isFormVisible, setIsFormVisible] = useState(false);
   const [editBlogData, setEditBlogData] = useState<{
@@ -67,7 +74,7 @@ export default function BlogPost() {
     post_status?: "draft" | "publish" | "private" | string;
   } | null>(null);
 
-  /** ✅ Fetch only the single post by id (FAST + FIXED) */
+  /** ✅ Fetch only the single post by id */
   useEffect(() => {
     if (!postId || Number.isNaN(postId)) {
       setLoading(false);
@@ -97,6 +104,9 @@ export default function BlogPost() {
           category: data.category ?? "",
           tags: data.tags ?? [],
           post_status: data.post_status ?? "draft",
+          imageUrl: data.imageUrl,
+          excerpt: data.excerpt,
+          readTime: data.readTime,
         };
 
         setPost(transformed);
@@ -108,6 +118,39 @@ export default function BlogPost() {
     };
 
     fetchPost();
+    return () => controller.abort();
+  }, [postId]);
+
+  /** ✅ Fetch recent/new blog posts for right sidebar */
+  useEffect(() => {
+    const controller = new AbortController();
+
+    const fetchRecent = async () => {
+      setRecentLoading(true);
+      try {
+        const res = await fetch(`/api/blogpost?limit=6&page=1`, {
+          signal: controller.signal,
+        });
+        if (!res.ok) throw new Error("Failed to fetch recent posts");
+
+        const json = await res.json();
+        const list: Blog[] = Array.isArray(json)
+          ? json
+          : Array.isArray(json?.data)
+          ? json.data
+          : [];
+
+        // current post remove + latest 6 only
+        const filtered = list.filter((p) => p.id !== postId).slice(0, 6);
+        setRecentPosts(filtered);
+      } catch (e) {
+        if ((e as any).name !== "AbortError") console.error(e);
+      } finally {
+        setRecentLoading(false);
+      }
+    };
+
+    fetchRecent();
     return () => controller.abort();
   }, [postId]);
 
@@ -238,7 +281,7 @@ export default function BlogPost() {
     keywords,
   };
 
-  /** ✅ Skeleton loader (same layout vibe) */
+  /** ✅ Skeleton loader */
   if (loading) {
     return (
       <>
@@ -249,8 +292,12 @@ export default function BlogPost() {
         </Head>
 
         <div className="min-h-screen bg-white">
-          <div className="mx-auto max-w-7xl px-6 pt-16 pb-24 grid grid-cols-1 lg:grid-cols-12 lg:gap-12 animate-pulse">
-            <div className="lg:col-span-8 space-y-6">
+          <div className="mx-auto max-w-7xl px-6 pt-16 pb-24 grid grid-cols-1 lg:grid-cols-12 lg:gap-8 animate-pulse">
+            <aside className="lg:col-span-2 hidden lg:block">
+              <div className="h-[600px] bg-slate-100 rounded-xl" />
+            </aside>
+
+            <div className="lg:col-span-7 space-y-6">
               <div className="h-10 w-3/4 bg-slate-200 rounded" />
               <div className="h-6 w-1/3 bg-slate-200 rounded" />
               <div className="space-y-3">
@@ -261,11 +308,12 @@ export default function BlogPost() {
               </div>
             </div>
 
-            <aside className="lg:col-span-4 mt-10 lg:mt-0">
+            <aside className="lg:col-span-3 mt-10 lg:mt-0">
               <div className="p-6 border border-slate-100 rounded-xl bg-slate-50 shadow-md space-y-4">
                 <div className="h-4 w-1/2 bg-slate-200 rounded" />
-                <div className="h-10 w-full bg-slate-200 rounded" />
-                <div className="h-10 w-full bg-slate-200 rounded" />
+                <div className="h-20 w-full bg-slate-200 rounded" />
+                <div className="h-20 w-full bg-slate-200 rounded" />
+                <div className="h-20 w-full bg-slate-200 rounded" />
               </div>
             </aside>
           </div>
@@ -336,10 +384,9 @@ export default function BlogPost() {
         )}
       </Head>
 
-      {/* ---- rest of your UI unchanged ---- */}
       <div className="min-h-screen bg-white relative">
         {/* Header */}
-        <header className="py-8 border-b border-slate-100 shadow-sm" role="banner">
+        <header className="py-6 border-b border-slate-100 shadow-sm">
           <div className="mx-auto max-w-7xl px-6">
             <nav aria-label="Breadcrumb">
               <ol className="flex items-center gap-2 text-slate-500 text-sm">
@@ -359,135 +406,232 @@ export default function BlogPost() {
           </div>
         </header>
 
-        {/* Content + Sidebar */}
-        <main
-          className="mx-auto max-w-7xl px-6 pt-16 pb-24 grid grid-cols-1 lg:grid-cols-12 lg:gap-12"
-          itemScope
-          itemType="https://schema.org/Article"
+       
+      {/* 3 COLUMN LAYOUT - WIDE */}
+{/* 3 COLUMN LAYOUT - ULTRA WIDE + RESPONSIVE */}
+<main
+  className="
+    mx-auto w-full
+    max-w-none
+    px-3 sm:px-6 lg:px-8 2xl:px-10
+    pt-8 md:pt-10 pb-20 md:pb-24
+    grid grid-cols-1 lg:grid-cols-12
+    gap-6 lg:gap-8 2xl:gap-10
+  "
+>
+  {/* ===== LEFT ADS ===== */}
+  <aside
+    className="
+      order-2 lg:order-1
+      lg:col-span-2
+      hidden lg:block
+    "
+  >
+    <div className="sticky top-6 space-y-4">
+      <div className="border border-slate-200 rounded-xl bg-slate-50 h-[700px] flex items-center justify-center text-slate-400 text-sm">
+        Google Ads Area
+      </div>
+      <div className="border border-slate-200 rounded-xl bg-slate-50 h-[280px] flex items-center justify-center text-slate-400 text-sm">
+        Ads / Banner
+      </div>
+    </div>
+  </aside>
+
+  {/* ===== CENTER BLOG ===== */}
+  <article
+    className="
+      order-1 lg:order-2
+      lg:col-span-8 xl:col-span-7 2xl:col-span-8
+      min-w-0
+    "
+    itemScope
+    itemType="https://schema.org/Article"
+  >
+    <div
+      className="
+        max-w-none space-y-8
+        bg-white
+        lg:border lg:border-slate-100
+        lg:rounded-2xl
+        lg:p-8 xl:p-10 2xl:p-12
+        lg:shadow-sm
+      "
+    >
+      {/* Title */}
+      <div className="relative group">
+        <h1
+          className="
+            text-3xl sm:text-4xl md:text-5xl
+            font-extrabold tracking-tight text-slate-900 leading-snug
+          "
+          itemProp="headline"
         >
-          <article className="lg:col-span-8">
-            <div className="max-w-4xl space-y-8">
-              {/* Title */}
-              <div className="relative group">
-                <h1
-                  className="text-4xl md:text-5xl font-extrabold tracking-tight text-slate-900 leading-snug"
-                  itemProp="headline"
+          {post.post_title}
+        </h1>
+
+        {isAuthed && (
+          <button
+            type="button"
+            onClick={() => openEdit("title")}
+            title="Edit title"
+            className="absolute -right-2 -top-2 opacity-0 group-hover:opacity-100 focus:opacity-100
+                       transition rounded-full bg-cyan-600 text-white p-2 shadow-lg hover:bg-cyan-700"
+          >
+            <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none"
+              viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+              <path strokeLinecap="round" strokeLinejoin="round"
+                d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5M18.5 2.5a2.121 2.121 0 113 3L12 15l-4 1 1-4 9.5-9.5z" />
+            </svg>
+          </button>
+        )}
+      </div>
+
+      {/* Meta row */}
+      <div className="flex flex-wrap items-center gap-3 text-sm text-slate-500">
+        <span>
+          {new Date(post.createdAt).toLocaleDateString("en-US", {
+            year: "numeric",
+            month: "long",
+            day: "numeric",
+          })}
+        </span>
+        <span className="text-slate-300">•</span>
+        <span>{readTime} min read</span>
+
+        {post.category && (
+          <>
+            <span className="text-slate-300">•</span>
+            <span className="px-2 py-0.5 rounded-full bg-cyan-50 text-cyan-700 font-semibold text-xs uppercase">
+              {post.category}
+            </span>
+          </>
+        )}
+      </div>
+
+      {/* Content */}
+      <div className="relative group">
+        {isAuthed && (
+          <button
+            type="button"
+            onClick={() => openEdit("content")}
+            title="Edit content"
+            className="absolute -right-2 -top-2 opacity-0 group-hover:opacity-100 focus:opacity-100
+                       transition rounded-full bg-cyan-600 text-white p-2 shadow-lg hover:bg-cyan-700 z-10"
+          >
+            <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none"
+              viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+              <path strokeLinecap="round" strokeLinejoin="round"
+                d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5M18.5 2.5a2.121 2.121 0 113 3L12 15l-4 1 1-4 9.5-9.5z" />
+            </svg>
+          </button>
+        )}
+
+        <div
+          className="
+            blog-content mt-2 max-w-none text-slate-800 leading-relaxed
+            text-[16px] sm:text-[17px] md:text-[18px] 2xl:text-[19px]
+            overflow-x-auto
+          "
+          dangerouslySetInnerHTML={{ __html: post.post_content }}
+          itemProp="articleBody"
+        />
+      </div>
+
+      {/* hidden SEO meta */}
+      <div className="sr-only">
+        <time dateTime={dateISO} itemProp="datePublished">{dateISO}</time>
+        <meta itemProp="dateModified" content={dateISO} />
+        <meta itemProp="author" content="Moving Quote Texas" />
+        {keywords && <meta itemProp="keywords" content={keywords} />}
+      </div>
+    </div>
+  </article>
+
+  {/* ===== RIGHT RECENT BLOGS ===== */}
+  <aside
+    className="
+      order-3 lg:order-3
+      lg:col-span-2 xl:col-span-3 2xl:col-span-2
+      mt-2 lg:mt-0
+      min-w-0
+    "
+  >
+    <div className="lg:sticky lg:top-6 space-y-6">
+      <div className="p-5 sm:p-6 border border-slate-100 rounded-xl bg-white shadow-sm">
+        <h3 className="text-lg font-bold text-slate-900 mb-4">
+          New Blogs
+        </h3>
+
+        {recentLoading ? (
+          <div className="space-y-3 animate-pulse">
+            <div className="h-20 bg-slate-100 rounded-lg" />
+            <div className="h-20 bg-slate-100 rounded-lg" />
+            <div className="h-20 bg-slate-100 rounded-lg" />
+          </div>
+        ) : recentPosts.length === 0 ? (
+          <p className="text-sm text-slate-500">No recent posts found.</p>
+        ) : (
+          <div className="space-y-4">
+            {recentPosts.map((p) => {
+              const pSlug = slugify(p.post_title || "");
+              const pDesc =
+                stripHtml(p.excerpt || p.post_content || "").slice(0, 90);
+
+              return (
+                <Link
+                  key={p.id}
+                  href={`/blog/${p.id}?slug=${encodeURIComponent(pSlug)}`}
+                  className="block group"
                 >
-                  {post.post_title}
-                </h1>
-
-                {isAuthed && (
-                  <button
-                    type="button"
-                    onClick={() => openEdit("title")}
-                    title="Edit title"
-                    className="absolute -right-2 -top-2 opacity-0 group-hover:opacity-100 focus:opacity-100
-                               transition rounded-full bg-cyan-600 text-white p-2 shadow-lg hover:bg-cyan-700"
-                  >
-                    {/* icon */}
-                    <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none"
-                      viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                      <path strokeLinecap="round" strokeLinejoin="round"
-                        d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5M18.5 2.5a2.121 2.121 0 113 3L12 15l-4 1 1-4 9.5-9.5z" />
-                    </svg>
-                  </button>
-                )}
-              </div>
-
-              {/* Category */}
-              {post.category && (
-                <div>
-                  <span
-                    className="text-sm font-semibold uppercase text-cyan-600 border border-cyan-200 bg-cyan-50 px-3 py-1 rounded-full tracking-wider"
-                    itemProp="articleSection"
-                  >
-                    {post.category}
-                  </span>
-                </div>
-              )}
-
-              {/* Content */}
-              <div className="relative group">
-                {isAuthed && (
-                  <button
-                    type="button"
-                    onClick={() => openEdit("content")}
-                    title="Edit content"
-                    className="absolute -right-2 -top-2 opacity-0 group-hover:opacity-100 focus:opacity-100
-                               transition rounded-full bg-cyan-600 text-white p-2 shadow-lg hover:bg-cyan-700 z-10"
-                  >
-                    <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none"
-                      viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                      <path strokeLinecap="round" strokeLinejoin="round"
-                        d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5M18.5 2.5a2.121 2.121 0 113 3L12 15l-4 1 1-4 9.5-9.5z" />
-                    </svg>
-                  </button>
-                )}
-
-                <div
-                  className="blog-content mt-2 max-w-none text-slate-800 overflow-x-auto"
-                  dangerouslySetInnerHTML={{ __html: post.post_content }}
-                  itemProp="articleBody"
-                />
-              </div>
-
-              {/* meta for crawlers */}
-              <div className="sr-only">
-                <time dateTime={dateISO} itemProp="datePublished">{dateISO}</time>
-                <meta itemProp="dateModified" content={dateISO} />
-                <meta itemProp="author" content="Moving Quote Texas" />
-                {keywords && <meta itemProp="keywords" content={keywords} />}
-              </div>
-            </div>
-          </article>
-
-          {/* Sidebar */}
-          <aside className="lg:col-span-4 mt-12 lg:mt-0" aria-label="Article details">
-            <div className="lg:sticky lg:top-10">
-              <div className="p-6 border border-slate-100 rounded-xl bg-slate-50 shadow-md">
-                <p className="text-sm font-semibold uppercase text-slate-500 mb-4 tracking-wider">
-                  Article Details
-                </p>
-
-                <div className="space-y-4">
-                  <div className="flex items-center gap-3">
-                    <svg className="w-5 h-5 text-cyan-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
-                        d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
-                    </svg>
-                    <div>
-                      <p className="text-xs text-slate-500">Published</p>
-                      <p className="font-semibold text-slate-800">
-                        {new Date(post.createdAt).toLocaleDateString("en-US", {
-                          year: "numeric",
-                          month: "short",
-                          day: "numeric",
-                        })}
+                  <div className="flex gap-3 p-3 rounded-lg hover:bg-slate-50 transition border border-transparent hover:border-slate-100">
+                    <div className="flex-1 min-w-0">
+                      <p className="font-semibold text-slate-900 group-hover:text-cyan-700 line-clamp-2">
+                        {p.post_title}
                       </p>
+                      <p className="text-xs text-slate-500 mt-1">
+                        {new Date(p.createdAt).toLocaleDateString()}
+                        {" • "}
+                        {(p.readTime ?? 1)} min read
+                      </p>
+                      {pDesc && (
+                        <p className="text-sm text-slate-600 mt-1 line-clamp-2">
+                          {pDesc}...
+                        </p>
+                      )}
                     </div>
                   </div>
-
-                  <div className="flex items-center gap-3">
-                    <svg className="w-5 h-5 text-cyan-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
-                        d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
-                    </svg>
-                    <div>
-                      <p className="text-xs text-slate-500">Reading Time</p>
-                      <p className="font-semibold text-slate-800">{readTime} min read</p>
-                    </div>
-                  </div>
-                </div>
-              </div>
-
-              <div className="mt-8 text-center">
-                <Link href="/blog" className="text-cyan-600 font-semibold hover:text-cyan-700 transition">
-                  Browse All Articles →
                 </Link>
-              </div>
-            </div>
-          </aside>
-        </main>
+              );
+            })}
+          </div>
+        )}
+
+        <div className="mt-4 text-center">
+          <Link
+            href="/blog"
+            className="text-cyan-600 text-sm font-semibold hover:text-cyan-700 transition"
+          >
+            View all →
+          </Link>
+        </div>
+      </div>
+    </div>
+  </aside>
+
+  {/* ===== MOBILE ADS (shown only on phone) ===== */}
+  <div className="order-4 lg:hidden">
+    <div className="mt-6 space-y-4">
+      <div className="border border-slate-200 rounded-xl bg-slate-50 h-[220px] flex items-center justify-center text-slate-400 text-sm">
+        Google Ads Area (Mobile)
+      </div>
+      <div className="border border-slate-200 rounded-xl bg-slate-50 h-[160px] flex items-center justify-center text-slate-400 text-sm">
+        Banner Ads (Mobile)
+      </div>
+    </div>
+  </div>
+</main>
+
+
       </div>
 
       {/* Edit Modal unchanged */}
@@ -504,7 +648,10 @@ export default function BlogPost() {
           >
             <div className="flex justify-between mb-2">
               <h2 className="text-2xl font-bold">Edit Blog</h2>
-              <button onClick={handleCloseModal} className="text-gray-500 font-bold text-xl">
+              <button
+                onClick={handleCloseModal}
+                className="text-gray-500 font-bold text-xl"
+              >
                 &times;
               </button>
             </div>

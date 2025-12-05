@@ -173,6 +173,8 @@ const BlogManagementClient: React.FC<{
 }> = ({ initialBlogs, initialMeta, itemsPerPage }) => {
   const [isFormVisible, setIsFormVisible] = useState(false);
   const [editBlogData, setEditBlogData] = useState<Blog | null>(null);
+
+  // ✅ search input
   const [searchQuery, setSearchQuery] = useState("");
 
   /** ✅ server-side pagination states */
@@ -196,10 +198,14 @@ const BlogManagementClient: React.FC<{
   /** ✅ only skip fetch on VERY first mount */
   const didSkipInitial = useRef(false);
 
-  /** ✅ Fetch one page from server */
+  // ✅ search change হলে auto page-1
   useEffect(() => {
-    // skip only once (first server page already rendered)
-    if (!didSkipInitial.current && currentPage === initialMeta.page) {
+    setCurrentPage(1);
+  }, [searchQuery]);
+
+  /** ✅ Fetch one page from server (NOW WITH GLOBAL SEARCH) */
+  useEffect(() => {
+    if (!didSkipInitial.current && currentPage === initialMeta.page && !searchQuery) {
       didSkipInitial.current = true;
       return;
     }
@@ -211,10 +217,16 @@ const BlogManagementClient: React.FC<{
       setPageLoading(true);
 
       try {
-        const res = await fetch(
-          `/api/blogpost?page=${currentPage}&limit=${itemsPerPage}`,
-          { signal: controller.signal, cache: "no-store" }
-        );
+        const qs = new URLSearchParams();
+        qs.set("page", String(currentPage));
+        qs.set("limit", String(itemsPerPage));
+        if (searchQuery.trim()) qs.set("q", searchQuery.trim()); // ✅ GLOBAL SEARCH PARAM
+
+        const res = await fetch(`/api/blogpost?${qs.toString()}`, {
+          signal: controller.signal,
+          cache: "no-store",
+        });
+
         if (!res.ok) throw new Error("Failed to fetch blogs");
 
         const json: BlogResponse | any = await res.json();
@@ -245,12 +257,6 @@ const BlogManagementClient: React.FC<{
           setTotalBlogs(meta.total || mapped.length);
         });
 
-        // prefetch next page
-        if (currentPage < (meta.totalPages || 1)) {
-          fetch(`/api/blogpost?page=${currentPage + 1}&limit=${itemsPerPage}`, {
-            cache: "no-store",
-          }).catch(() => {});
-        }
       } catch (e: any) {
         if (e.name !== "AbortError") {
           console.error(e);
@@ -263,9 +269,9 @@ const BlogManagementClient: React.FC<{
 
     fetchPageBlogs();
     return () => controller.abort();
-  }, [currentPage, itemsPerPage, reloadTick, initialMeta.page]);
+  }, [currentPage, itemsPerPage, reloadTick, initialMeta.page, searchQuery]);
 
-  /** ✅ Search filter (current page) */
+  /** ✅ Local filter (safe backup) */
   const filteredPosts = useMemo(() => {
     const q = searchQuery.toLowerCase().trim();
     if (!q) return blogs;
@@ -309,8 +315,6 @@ const BlogManagementClient: React.FC<{
         if (!response.ok) throw new Error("Failed to delete");
 
         alert("Blog post deleted successfully!");
-
-        // ✅ real refresh same page
         forceReload();
       } catch {
         alert("Failed to delete blog post. Please try again.");
@@ -331,7 +335,7 @@ const BlogManagementClient: React.FC<{
     setEditBlogData(null);
 
     if (currentPage !== 1) setCurrentPage(1);
-    else forceReload(); // ✅ if already on page 1, still refetch
+    else forceReload();
   }, [currentPage, forceReload]);
 
   const paginate = (p: number) => {

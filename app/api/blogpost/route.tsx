@@ -226,6 +226,7 @@ export async function GET(req: Request) {
 
       return NextResponse.json({ data: posts, meta: { total: posts.length } });
     }
+
     const titlesOnly = searchParams.get("titles");
     if (titlesOnly === "1") {
       const titles = await prisma.blogPost.findMany({
@@ -235,8 +236,10 @@ export async function GET(req: Request) {
 
       return NextResponse.json(titles, { status: 200 });
     }
+
     const category = searchParams.get("category");
     const authorId = searchParams.get("authorId");
+    const q = (searchParams.get("q") || "").trim(); // ✅ GLOBAL SEARCH
 
     const page = Math.max(1, Number(searchParams.get("page") || 1));
     const limit = Math.max(1, Number(searchParams.get("limit") || 6)); // ✅ NO CAP
@@ -245,6 +248,15 @@ export async function GET(req: Request) {
     const filters: any = {};
     if (category) filters.category = category;
     if (authorId) filters.post_author = parseInt(authorId);
+
+    // ✅ SAFE prisma search (title/category/tags only)
+    if (q) {
+      filters.OR = [
+        { post_title: { contains: q, mode: "insensitive" } },
+        { category: { contains: q, mode: "insensitive" } },
+        { tags: { contains: q, mode: "insensitive" } },
+      ];
+    }
 
     const allPosts = await prisma.blogPost.findMany({
       where: filters,
@@ -263,26 +275,39 @@ export async function GET(req: Request) {
 
     const hasImageFast = (content: string) => /<img\s/i.test(content);
 
-    const sortable = allPosts.map((item) => {
-      const rawContent =
-        typeof item.post_content === "object" &&
-        (item.post_content as any)?.text
-          ? (item.post_content as any).text
-          : String(item.post_content || "");
+    const sortable = allPosts
+      .map((item) => {
+        const rawContent =
+          typeof item.post_content === "object" &&
+          (item.post_content as any)?.text
+            ? (item.post_content as any).text
+            : String(item.post_content || "");
 
-      return {
-        id: item.id,
-        post_title: item.post_title,
-        post_content: rawContent,
-        post_category: item.category || "General",
-        post_tags: item.tags || "",
-        post_status: item.post_status,
-        createdAt: item.createdAt,
-        post_excerpt: item.post_excerpt || "",
-        _hasRealImage: hasImageFast(rawContent),
-      };
-    });
+        return {
+          id: item.id,
+          post_title: item.post_title,
+          post_content: rawContent,
+          post_category: item.category || "General",
+          post_tags: item.tags || "",
+          post_status: item.post_status,
+          createdAt: item.createdAt,
+          post_excerpt: item.post_excerpt || "",
+          _hasRealImage: hasImageFast(rawContent),
+        };
+      })
+      // ✅ EXTRA in-memory content search (safe even if post_content Json)
+      .filter((item) => {
+        if (!q) return true;
+        const needle = q.toLowerCase();
+        return (
+          String(item.post_title || "").toLowerCase().includes(needle) ||
+          String(item.post_category || "").toLowerCase().includes(needle) ||
+          String(item.post_tags || "").toLowerCase().includes(needle) ||
+          String(item.post_content || "").toLowerCase().includes(needle)
+        );
+      });
 
+    // ✅ image-first sort
     sortable.sort((a, b) => {
       if (a._hasRealImage !== b._hasRealImage) {
         return Number(b._hasRealImage) - Number(a._hasRealImage);
@@ -292,7 +317,6 @@ export async function GET(req: Request) {
 
     const total = sortable.length;
     const totalPages = Math.ceil(total / limit) || 1;
-
     const pageSlice = sortable.slice(skip, skip + limit);
 
     const paginated = pageSlice.map((item) => {
