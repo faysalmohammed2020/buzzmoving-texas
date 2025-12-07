@@ -495,8 +495,6 @@ export default function BlogPost() {
             day: "numeric",
           })}
         </span>
-        <span className="text-slate-300">•</span>
-        <span>{readTime} min read</span>
 
         {post.category && (
           <>
@@ -590,8 +588,6 @@ export default function BlogPost() {
                       </p>
                       <p className="text-xs text-slate-500 mt-1">
                         {new Date(p.createdAt).toLocaleDateString()}
-                        {" • "}
-                        {(p.readTime ?? 1)} min read
                       </p>
                       {pDesc && (
                         <p className="text-sm text-slate-600 mt-1 line-clamp-2">
