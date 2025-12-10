@@ -3,6 +3,7 @@
 
 import React from "react";
 import { Editor } from "@tinymce/tinymce-react";
+import type { BlobInfo } from "tinymce";
 
 interface RichTextEditorProps {
   value: string;
@@ -26,11 +27,13 @@ const RichTextEditor: React.FC<RichTextEditorProps> = ({
     });
 
     if (!res.ok) {
-      const msg = await res.json().catch(() => ({}));
-      throw new Error(msg?.error || "Upload failed");
+      const msg = await res.json().catch(() => ({} as Record<string, unknown>));
+      const errText =
+        typeof msg?.error === "string" ? msg.error : "Upload failed";
+      throw new Error(errText);
     }
-    const data = await res.json();
-    return data.url as string; // e.g. "/image/12345.jpg"
+    const data: { url?: unknown } = await res.json();
+    return String(data.url); // e.g. "/image/12345.jpg"
   };
 
   return (
@@ -108,7 +111,7 @@ const RichTextEditor: React.FC<RichTextEditorProps> = ({
             padding: 6px 8px;
           }
         `,
-        
+
         // ✅ Image upload config
         automatic_uploads: true,
         paste_data_images: true, // paste করলে data URI এলে আপলোড করব
@@ -117,7 +120,9 @@ const RichTextEditor: React.FC<RichTextEditorProps> = ({
          * Toolbar-এর Image বাটন, paste, drag-n-drop—TinyMCE এখানেই blob দেয়।
          * আমরা সার্ভারে আপলোড করে URL রিটার্ন করলে TinyMCE নিজে <img src="..."> বসায়।
          */
-        images_upload_handler: async (blobInfo: any /*, progress: (p:number)=>void*/) => {
+        images_upload_handler: async (
+          blobInfo: BlobInfo /*, progress: (p:number)=>void*/
+        ): Promise<string> => {
           const file = blobInfo.blob();
           const url = await uploadToServer(file);
           return url; // TinyMCE expects a string URL
@@ -128,20 +133,25 @@ const RichTextEditor: React.FC<RichTextEditorProps> = ({
          * এখানে ফাইল নিলে একইভাবে /api/upload এ পাঠিয়ে callback(url) করি।
          */
         file_picker_types: "image",
-        file_picker_callback: (callback: (url: string, meta?: any) => void, _value, meta) => {
+        file_picker_callback: (
+          callback: (url: string, meta?: Record<string, unknown>) => void,
+          _value: string,
+          meta: { filetype?: string }
+        ) => {
           if (meta.filetype !== "image") return;
 
           const input = document.createElement("input");
           input.type = "file";
           input.accept = "image/*";
           input.onchange = async () => {
-            const file = (input.files && input.files[0]) as File;
+            const file = input.files?.[0];
             if (!file) return;
             try {
               const url = await uploadToServer(file);
               callback(url, { alt: file.name });
-            } catch (e: any) {
-              alert(e?.message || "Image upload failed");
+            } catch (e: unknown) {
+              const msg = e instanceof Error ? e.message : "Image upload failed";
+              alert(msg);
             }
           };
           input.click();

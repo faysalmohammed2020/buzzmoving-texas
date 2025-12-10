@@ -14,6 +14,44 @@ type StateCityMap = Record<string, string[]>;
 // ✅ US ZIP validation (5-digit OR ZIP+4)
 const usZipRegex = /^\d{5}(-\d{4})?$/;
 
+// ✅ Payload type (your current API shape)
+type LeadPayload = {
+  key: string;
+  lead_type: string;
+  lead_source: string;
+  referer: string;
+  from_ip: string;
+  first_name: string;
+  last_name: string;
+  email: string;
+  phone: string;
+
+  from_state: string;
+  from_state_code: string;
+  from_city: string;
+  from_zip: string;
+
+  to_state: string;
+  to_state_code: string;
+  to_city: string;
+  to_zip: string;
+
+  move_date: string;
+  move_size: string;
+  car_make: string;
+  car_model: string;
+  car_make_year: string;
+};
+
+// ✅ ipify response type
+type IpifyResponse = { ip: string };
+
+// ✅ response from /api/save-form (minimal safe shape)
+type SaveFormResponse = {
+  message?: string;
+  [key: string]: unknown;
+};
+
 const MovingCalculator: React.FC = () => {
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
@@ -65,7 +103,7 @@ const MovingCalculator: React.FC = () => {
 
   useEffect(() => {
     fetch("https://api.ipify.org?format=json")
-      .then((res) => res.json())
+      .then((res) => res.json() as Promise<IpifyResponse>)
       .then((data) => setFromIp(data.ip))
       .catch(() => {});
     if (document.referrer) setReferer(document.referrer || "Direct");
@@ -115,7 +153,7 @@ const MovingCalculator: React.FC = () => {
     const [firstName, ...lastNameParts] = name.trim().split(" ");
     const lastName = lastNameParts.join(" ");
 
-    const jsonPayload = {
+    const jsonPayload: LeadPayload = {
       key: "c5QlLF3Ql90DGQr222tIqHd441",
       lead_type: leadType,
       lead_source: referer ? "Website: " + referer : "Website: Direct",
@@ -159,7 +197,7 @@ const MovingCalculator: React.FC = () => {
         return;
       }
 
-      const data = await response.json();
+      const data: SaveFormResponse = await response.json();
 
       if (data?.message === "Form submitted successfully") {
         await sendToExternalAPI(jsonPayload);
@@ -177,7 +215,7 @@ const MovingCalculator: React.FC = () => {
     }
   };
 
-  const sendToExternalAPI = async (jsonPayload: any) => {
+  const sendToExternalAPI = async (jsonPayload: LeadPayload) => {
     const sendingPoint = "/api/moving/receive-leads/receive.php/";
     const headers = new Headers({
       Authorization: "Token token=buzzmoving2017",
@@ -193,11 +231,14 @@ const MovingCalculator: React.FC = () => {
       });
 
       const contentType = response.headers.get("content-type");
-      let result: any;
+
+      // ✅ unknown instead of any
+      let result: unknown;
+
       if (contentType && contentType.includes("application/json")) {
-        result = await response.json();
+        result = (await response.json()) as unknown;
       } else {
-        result = JSON.parse(await response.text());
+        result = JSON.parse(await response.text()) as unknown;
       }
 
       await fetch("/api/save-response", {

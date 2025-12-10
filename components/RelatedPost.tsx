@@ -77,8 +77,13 @@ const RelatedPost: React.FC<RelatedPostProps> = ({ currentPostID }) => {
           }));
 
         if (isMounted) setRelatedPosts(recentThree);
-      } catch (err: any) {
-        if (isMounted) setError(err.message || "Something went wrong");
+      } catch (err: unknown) {
+        if (!isMounted) return;
+
+        const message =
+          err instanceof Error ? err.message : "Something went wrong";
+
+        setError(message);
       } finally {
         if (isMounted) setLoading(false);
       }
@@ -121,9 +126,7 @@ const RelatedPost: React.FC<RelatedPostProps> = ({ currentPostID }) => {
               />
             )}
 
-            <h3 className="text-xl font-semibold mb-2">
-              {post.post_title}
-            </h3>
+            <h3 className="text-xl font-semibold mb-2">{post.post_title}</h3>
 
             <p className="text-gray-500 text-sm mb-4">
               Published on:{" "}

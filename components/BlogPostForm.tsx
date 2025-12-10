@@ -11,7 +11,7 @@ interface BlogPostFormProps {
     post_tags?: string;
   } | null; // Allow null
   onClose: () => void;
-  onUpdate: (updatedBlog: any) => void; // Pass updated data to the parent
+  onUpdate: (updatedBlog: unknown) => void; // ✅ any removed
 }
 
 interface FormData {
@@ -86,7 +86,8 @@ const BlogPostForm: React.FC<BlogPostFormProps> = ({
       } else {
         alert("Failed to save blog post. Please try again.");
       }
-    } catch (error) {
+    } catch (error: unknown) {
+      console.error(error); // ✅ now used, no-unused-vars gone
       alert("An unexpected error occurred. Please try again.");
     }
   };

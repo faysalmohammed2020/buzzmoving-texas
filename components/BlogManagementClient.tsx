@@ -25,22 +25,24 @@ interface Blog {
   post_content: string;
   post_category: string;
   post_tags: string;
-  createdAt: any;
+  createdAt: string | Date | null;
   imageUrl?: string | null;
   excerpt?: string;
   readTime?: number;
   _searchTitle?: string;
 }
 
+interface BlogMeta {
+  page: number;
+  limit: number;
+  total: number;
+  totalPages: number;
+}
+
 interface BlogResponse {
-  data: any[];
-  items?: any[];
-  meta?: {
-    page: number;
-    limit: number;
-    total: number;
-    totalPages: number;
-  };
+  data: unknown[];
+  items?: unknown[];
+  meta?: BlogMeta;
 }
 
 /** ✅ normalize any kind of relative image path safely for next/image */
@@ -166,8 +168,13 @@ const AdminBlogCard: React.FC<{
 });
 AdminBlogCard.displayName = "AdminBlogCard";
 
+// ✅ AbortError checker
+function isAbortError(err: unknown) {
+  return err instanceof DOMException && err.name === "AbortError";
+}
+
 const BlogManagementClient: React.FC<{
-  initialBlogs: any[];
+  initialBlogs: unknown[];
   initialMeta: NonNullable<BlogResponse["meta"]>;
   itemsPerPage: number; // 9
 }> = ({ initialBlogs, initialMeta, itemsPerPage }) => {
@@ -205,7 +212,11 @@ const BlogManagementClient: React.FC<{
 
   /** ✅ Fetch one page from server (NOW WITH GLOBAL SEARCH) */
   useEffect(() => {
-    if (!didSkipInitial.current && currentPage === initialMeta.page && !searchQuery) {
+    if (
+      !didSkipInitial.current &&
+      currentPage === initialMeta.page &&
+      !searchQuery
+    ) {
       didSkipInitial.current = true;
       return;
     }
@@ -229,20 +240,25 @@ const BlogManagementClient: React.FC<{
 
         if (!res.ok) throw new Error("Failed to fetch blogs");
 
-        const json: BlogResponse | any = await res.json();
+        const json: unknown = await res.json();
 
-        const list: any[] = Array.isArray(json)
+        const list: unknown[] = Array.isArray(json)
           ? json
-          : json.data || json.items || [];
+          : (json as BlogResponse).data ||
+            (json as BlogResponse).items ||
+            [];
 
-        const meta = Array.isArray(json)
+        const meta: BlogMeta = Array.isArray(json)
           ? {
               page: currentPage,
               limit: itemsPerPage,
               total: list.length,
-              totalPages: Math.max(1, Math.ceil(list.length / itemsPerPage)),
+              totalPages: Math.max(
+                1,
+                Math.ceil(list.length / itemsPerPage)
+              ),
             }
-          : json.meta || {
+          : (json as BlogResponse).meta || {
               page: currentPage,
               limit: itemsPerPage,
               total: list.length,
@@ -256,9 +272,8 @@ const BlogManagementClient: React.FC<{
           setTotalPages(meta.totalPages || 1);
           setTotalBlogs(meta.total || mapped.length);
         });
-
-      } catch (e: any) {
-        if (e.name !== "AbortError") {
+      } catch (e: unknown) {
+        if (!isAbortError(e)) {
           console.error(e);
           setError("Failed to fetch blogs. Please try again later.");
         }
@@ -290,7 +305,7 @@ const BlogManagementClient: React.FC<{
           cache: "no-store",
         });
         if (res.ok) {
-          const full = await res.json();
+          const full: unknown = await res.json();
           blog = mapApiToBlog(full);
         }
       } catch {}
@@ -527,31 +542,36 @@ const BlogManagementClient: React.FC<{
 export default BlogManagementClient;
 
 /** ---------- helpers ---------- */
-function mapApiToBlog(item: any): Blog {
-  const rawContent =
-    typeof item.post_content === "object" && item.post_content?.text
-      ? item.post_content.text
-      : String(item.post_content ?? "");
+function mapApiToBlog(item: unknown): Blog {
+  const obj = (item ?? {}) as Record<string, unknown>;
 
-  const title = String(item.post_title || "");
+  const rawPostContent = obj.post_content;
+  const rawContent =
+    typeof rawPostContent === "object" &&
+    rawPostContent !== null &&
+    "text" in rawPostContent
+      ? String((rawPostContent as { text?: unknown }).text ?? "")
+      : String(rawPostContent ?? "");
+
+  const title = String(obj.post_title || "");
 
   const apiImage =
-    item.imageUrl ||
-    item.image_url ||
-    item.thumbnail ||
-    item.thumbnailUrl ||
-    item.thumbnail_url ||
-    item.post_thumbnail ||
-    item.post_image ||
-    item.featured_image ||
-    item.featuredImage ||
-    item.cover_image ||
-    item.banner ||
-    item.image ||
+    obj.imageUrl ||
+    obj.image_url ||
+    obj.thumbnail ||
+    obj.thumbnailUrl ||
+    obj.thumbnail_url ||
+    obj.post_thumbnail ||
+    obj.post_image ||
+    obj.featured_image ||
+    obj.featuredImage ||
+    obj.cover_image ||
+    obj.banner ||
+    obj.image ||
     null;
 
   const contentImage = extractFirstImage(rawContent);
-  const imageUrl = apiImage || contentImage || null;
+  const imageUrl = (apiImage as string | null) || contentImage || null;
 
   const firstLine = getFirstLine(rawContent);
   const excerpt = firstLine.slice(0, 160);
@@ -560,12 +580,15 @@ function mapApiToBlog(item: any): Blog {
   const readTime = Math.max(1, Math.ceil(wordCount / 200));
 
   return {
-    id: Number(item.id),
+    id: Number(obj.id),
     post_title: title,
     post_content: rawContent,
-    post_category: item.post_category || item.category || "",
-    post_tags: item.post_tags || item.tags || "",
-    createdAt: item.createdAt ?? item.post_date ?? null,
+    post_category: String(obj.post_category || obj.category || ""),
+    post_tags: String(obj.post_tags || obj.tags || ""),
+    createdAt: (obj.createdAt ?? obj.post_date ?? null) as
+      | string
+      | Date
+      | null,
     imageUrl,
     excerpt,
     readTime,

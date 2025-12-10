@@ -119,6 +119,11 @@ const BlogCard: React.FC<{ post: Blog }> = React.memo(({ post }) => {
 });
 BlogCard.displayName = "BlogCard";
 
+// ✅ AbortError checker
+function isAbortError(err: unknown) {
+  return err instanceof DOMException && err.name === "AbortError";
+}
+
 export default function BlogPageClient({
   initialBlogs,
   initialMeta,
@@ -171,14 +176,14 @@ export default function BlogPageClient({
           fetch(`/api/blogpost?page=${page + 1}&limit=${postsPerPage}`, {
             cache: "no-store",
           })
-            .then(r => r.json())
+            .then((r) => r.json())
             .then((nextJson: BlogResponse) => {
               pageCacheRef.current.set(page + 1, nextJson.data || []);
             })
             .catch(() => {});
         }
-      } catch (e: any) {
-        if (e.name !== "AbortError") {
+      } catch (e: unknown) {
+        if (!isAbortError(e)) {
           console.error(e);
           setError("Failed to load articles. Please check your connection.");
         }

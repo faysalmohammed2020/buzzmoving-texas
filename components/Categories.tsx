@@ -19,7 +19,7 @@ type BlogPost = {
   createdAt?: string;
 };
 
-const normalize = (v: any) =>
+const normalize = (v: unknown) =>
   String(v ?? "")
     .toLowerCase()
     .trim();
@@ -43,6 +43,16 @@ const getPostCategoryId = (post: BlogPost) => {
     return post.category.id;
   }
   return undefined;
+};
+
+// ✅ AbortError guard (no any)
+const isAbortError = (err: unknown) => {
+  if (err instanceof DOMException) return err.name === "AbortError";
+  if (typeof err === "object" && err !== null && "name" in err) {
+    const name = (err as { name?: unknown }).name;
+    return name === "AbortError";
+  }
+  return false;
 };
 
 const Categories = () => {
@@ -69,8 +79,8 @@ const Categories = () => {
 
         // ✅ NO status filtering anymore (Draft included)
         setPosts(list);
-      } catch (e) {
-        if ((e as any).name !== "AbortError") console.error(e);
+      } catch (e: unknown) {
+        if (!isAbortError(e)) console.error(e);
       } finally {
         setLoading(false);
       }
@@ -124,7 +134,9 @@ const Categories = () => {
 
             // ✅ also fallback by id if any API category object has id
             if (postsInCategory.length === 0) {
-              postsInCategory = posts.filter((p) => getPostCategoryId(p) === item.id);
+              postsInCategory = posts.filter(
+                (p) => getPostCategoryId(p) === item.id
+              );
             }
 
             return (

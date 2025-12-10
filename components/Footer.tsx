@@ -10,7 +10,7 @@ const Footer: React.FC = () => {
           <Link href="/" className="mx-3 hover:text-gray-800">
             Home
           </Link>
-          <Link href="/services" className="mx-3 hover:text-gray-800">
+          <Link href="/services/long-distance-moving" className="mx-3 hover:text-gray-800">
             Services
           </Link>
           <Link

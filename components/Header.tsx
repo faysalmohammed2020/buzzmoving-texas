@@ -15,14 +15,31 @@ interface Blog {
   _titleLower: string;
 }
 
+// ✅ API title-only item shape
+type BlogTitleItem = {
+  id: number | string;
+  post_title?: unknown;
+};
+
+// ✅ New/Old API response (no any)
 type BlogListResponse =
-  | { data: any[]; meta?: any } // new API
-  | any[];                     // old API
+  | { data: BlogTitleItem[]; meta?: Record<string, unknown> } // new API
+  | BlogTitleItem[]; // old API
+
+// ✅ AbortError guard (no any)
+const isAbortError = (err: unknown) => {
+  if (err instanceof DOMException) return err.name === "AbortError";
+  if (typeof err === "object" && err !== null && "name" in err) {
+    const name = (err as { name?: unknown }).name;
+    return name === "AbortError";
+  }
+  return false;
+};
 
 const HeaderMenu: React.FC = () => {
   const [isMobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [hoveredMenu, setHoveredMenu] = useState<string | null>(null);
-  const timeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const [isHovered, setIsHovered] = useState<boolean>(false);
 
@@ -40,7 +57,7 @@ const HeaderMenu: React.FC = () => {
   const handleSignOut = useCallback(async () => {
     try {
       await signOut();
-    } catch (e) {
+    } catch (e: unknown) {
       console.error("Sign out failed", e);
     } finally {
       router.push("/sign-in");
@@ -53,59 +70,59 @@ const HeaderMenu: React.FC = () => {
     return () => clearTimeout(t);
   }, [searchQuery]);
 
-  const unwrapList = (json: BlogListResponse) =>
-    Array.isArray(json) ? json : (json.data || []);
-
   /**
-   * ✅ Fetch ALL titles reliably:
-   * - server may cap limit to 20, so we detect effectivePerPage from page1
-   * - fetch pages until empty OR no new ids found
-   * - DO NOT abort on hover leave (only unmount)
+   * ✅ Fetch ALL titles reliably (titles=1)
+   * - directly returns array (your API)
    */
-useEffect(() => {
-  if (hoveredMenu !== "blogs" || hasLoadedBlogs) return;
+  useEffect(() => {
+    if (hoveredMenu !== "blogs" || hasLoadedBlogs) return;
 
-  const controller = new AbortController();
+    const controller = new AbortController();
 
-  const fetchAllBlogTitles = async () => {
-    setBlogsLoading(true);
-    setBlogsError(null);
+    const fetchAllBlogTitles = async () => {
+      setBlogsLoading(true);
+      setBlogsError(null);
 
-    try {
-      const res = await fetch(`/api/blogpost?titles=1`, {
-        signal: controller.signal,
-        cache: "no-store",
-      });
+      try {
+        const res = await fetch(`/api/blogpost?titles=1`, {
+          signal: controller.signal,
+          cache: "no-store",
+        });
 
-      if (!res.ok) throw new Error("Failed to fetch titles");
+        if (!res.ok) throw new Error("Failed to fetch titles");
 
-      const list = await res.json(); // এখানে সরাসরি array আসবে
+        const raw: BlogListResponse = await res.json();
 
-      const mapped: Blog[] = (list || []).map((item: any) => {
-        const title = String(item.post_title || "");
-        return {
-          id: Number(item.id),
-          post_title: title,
-          _titleLower: title.toLowerCase(),
-        };
-      });
+        const list: BlogTitleItem[] = Array.isArray(raw)
+          ? raw
+          : Array.isArray(raw?.data)
+          ? raw.data
+          : [];
 
-      setBlogs(mapped);
-      setHasLoadedBlogs(true);
-    } catch (error: any) {
-      if (error?.name !== "AbortError") {
-        console.error("Error fetching blogs:", error);
-        setBlogsError("Failed to load blogs.");
+        const mapped: Blog[] = list.map((item) => {
+          const title = String(item?.post_title ?? "");
+          return {
+            id: Number(item.id),
+            post_title: title,
+            _titleLower: title.toLowerCase(),
+          };
+        });
+
+        setBlogs(mapped);
+        setHasLoadedBlogs(true);
+      } catch (error: unknown) {
+        if (!isAbortError(error)) {
+          console.error("Error fetching blogs:", error);
+          setBlogsError("Failed to load blogs.");
+        }
+      } finally {
+        setBlogsLoading(false);
       }
-    } finally {
-      setBlogsLoading(false);
-    }
-  };
+    };
 
-  fetchAllBlogTitles();
-  return () => controller.abort();
-}, [hoveredMenu, hasLoadedBlogs]);
-
+    fetchAllBlogTitles();
+    return () => controller.abort();
+  }, [hoveredMenu, hasLoadedBlogs]);
 
   const filteredBlogs = useMemo(() => {
     const MAX_RESULTS = 30;
@@ -120,7 +137,9 @@ useEffect(() => {
     const parts = text.split(regex);
     return parts.map((part, idx) =>
       part.toLowerCase() === query.toLowerCase() ? (
-        <span key={idx} className="text-blue-600">{part}</span>
+        <span key={idx} className="text-blue-600">
+          {part}
+        </span>
       ) : (
         <span key={idx}>{part}</span>
       )
@@ -158,13 +177,19 @@ useEffect(() => {
             onClick={() => setMobileMenuOpen((prev) => !prev)}
             className="text-white"
           >
-            {isMobileMenuOpen ? <X className="w-6 h-6" /> : <Menu className="w-6 h-6" />}
+            {isMobileMenuOpen ? (
+              <X className="w-6 h-6" />
+            ) : (
+              <Menu className="w-6 h-6" />
+            )}
           </button>
         </div>
 
         {/* Desktop Nav */}
         <ul className="hidden md:flex items-center space-x-10 font-semibold text-lg">
-          <li><Link href="/home">Home</Link></li>
+          <li>
+            <Link href="/home">Home</Link>
+          </li>
 
           {/* Services Dropdown */}
           <li
@@ -185,10 +210,38 @@ useEffect(() => {
                       <hr />
                     </div>
                     <ul className="space-y-1 text-md">
-                      <li><Link href="/services/long-distance-moving" className="text-gray-700 hover:text-blue-500">Long Distance Moving</Link></li>
-                      <li><Link href="/services/auto-transport" className="text-gray-700 hover:text-blue-500">Auto Transport</Link></li>
-                      <li><Link href="/services/storage-solutions" className="text-gray-700 hover:text-blue-500">Storage Solutions</Link></li>
-                      <li><Link href="/services/home-changes" className="text-gray-700 hover:text-blue-500">Home Changes</Link></li>
+                      <li>
+                        <Link
+                          href="/services/long-distance-moving"
+                          className="text-gray-700 hover:text-blue-500"
+                        >
+                          Long Distance Moving
+                        </Link>
+                      </li>
+                      <li>
+                        <Link
+                          href="/services/auto-transport"
+                          className="text-gray-700 hover:text-blue-500"
+                        >
+                          Auto Transport
+                        </Link>
+                      </li>
+                      <li>
+                        <Link
+                          href="/services/storage-solutions"
+                          className="text-gray-700 hover:text-blue-500"
+                        >
+                          Storage Solutions
+                        </Link>
+                      </li>
+                      <li>
+                        <Link
+                          href="/services/home-changes"
+                          className="text-gray-700 hover:text-blue-500"
+                        >
+                          Home Changes
+                        </Link>
+                      </li>
                     </ul>
                   </div>
                 </div>
@@ -215,7 +268,9 @@ useEffect(() => {
             )}
           </li>
 
-          <li><Link href="/contact">Contact</Link></li>
+          <li>
+            <Link href="/contact">Contact</Link>
+          </li>
 
           {/* Blog Dropdown */}
           <li
@@ -247,7 +302,11 @@ useEffect(() => {
                   </div>
 
                   {/* Right list */}
-                  <div className={`${isHovered ? "w-full" : "w-2/3"} gap-4 pl-6 overflow-y-auto h-96`}>
+                  <div
+                    className={`${
+                      isHovered ? "w-full" : "w-2/3"
+                    } gap-4 pl-6 overflow-y-auto h-96`}
+                  >
                     <div
                       onMouseEnter={() => setIsHovered(true)}
                       onMouseLeave={() => setIsHovered(false)}
@@ -319,11 +378,21 @@ useEffect(() => {
       {/* Mobile Menu */}
       {isMobileMenuOpen && (
         <ul className="absolute top-16 left-0 w-full bg-white shadow-md flex flex-col text-lg md:hidden">
-          <li className="px-4 py-2 border-b"><Link href="/home">Home</Link></li>
-          <li className="px-4 py-2 border-b"><Link href="/services">Services</Link></li>
-          <li className="px-4 py-2 border-b"><Link href="/about-us/testimonial">About Us</Link></li>
-          <li className="px-4 py-2 border-b"><Link href="/contact">Contact</Link></li>
-          <li className="px-4 py-2 border-b"><Link href="/blog">Blog</Link></li>
+          <li className="px-4 py-2 border-b">
+            <Link href="/home">Home</Link>
+          </li>
+          <li className="px-4 py-2 border-b">
+            <Link href="/services">Services</Link>
+          </li>
+          <li className="px-4 py-2 border-b">
+            <Link href="/about-us/testimonial">About Us</Link>
+          </li>
+          <li className="px-4 py-2 border-b">
+            <Link href="/contact">Contact</Link>
+          </li>
+          <li className="px-4 py-2 border-b">
+            <Link href="/blog">Blog</Link>
+          </li>
         </ul>
       )}
     </header>

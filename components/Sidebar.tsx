@@ -7,9 +7,24 @@ import { sidebarItems, SidebarItem } from "@/app/data/sidebarData";
 import { LuArrowLeftFromLine, LuArrowRightToLine } from "react-icons/lu";
 import { signOut, useSession } from "@/lib/auth-client";
 
+/** ✅ local safe user shape (no any) */
+type AppUser = {
+  name?: string | null;
+  email?: string | null;
+  role?: string | null;
+};
+
+type AppSession = {
+  user?: AppUser | null;
+};
+
 const Sidebar: React.FC = () => {
   const router = useRouter();
   const { data: session } = useSession();
+
+  /** ✅ safely read user with optional fields */
+  const user = (session as unknown as AppSession | null)?.user;
+
   const [isCollapsed, setIsCollapsed] = useState<boolean>(false);
   const [showProfileMenu, setShowProfileMenu] = useState(false);
 
@@ -22,8 +37,8 @@ const Sidebar: React.FC = () => {
 
   // Header-er মতো initials helper
   const getUserInitials = () => {
-    if (session?.user?.name) {
-      return session.user.name
+    if (user?.name) {
+      return user.name
         .split(" ")
         .map((n) => n[0])
         .join("")
@@ -40,8 +55,7 @@ const Sidebar: React.FC = () => {
     } catch (e) {
       console.error("Sign out failed", e);
     } finally {
-      // এখানে তোমার sign-in route বসাও
-      router.push("/sign-in"); // e.g. "/auth/signin" হলে সেটা দাও
+      router.push("/sign-in");
     }
   };
 
@@ -105,10 +119,10 @@ const Sidebar: React.FC = () => {
               {!isCollapsed && (
                 <div className="text-left">
                   <h3 className="text-sm font-semibold text-white">
-                    {session?.user?.name || "User"}
+                    {user?.name || "User"}
                   </h3>
                   <p className="text-xs text-slate-300 capitalize">
-                    {(session?.user as any)?.role?.toLowerCase() || "admin"}
+                    {user?.role?.toLowerCase() || "admin"}
                   </p>
                 </div>
               )}
@@ -142,10 +156,10 @@ const Sidebar: React.FC = () => {
             >
               <div className="px-4 py-2 border-b border-gray-100">
                 <p className="text-sm font-medium text-gray-800">
-                  {session?.user?.name || "User"}
+                  {user?.name || "User"}
                 </p>
                 <p className="text-xs text-gray-500 truncate">
-                  {(session?.user as any)?.email || ""}
+                  {user?.email || ""}
                 </p>
               </div>
               <div className="py-1">

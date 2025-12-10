@@ -6,16 +6,13 @@ import BlogCard from "./BlogCard";
 
 interface Blog {
   id: number;
-
   post_title: string;
-
   post_content: string;
-
   post_category: string;
-
   post_tags: string;
 
-  createdAt: any;
+  // ✅ any সরিয়ে safe টাইপ
+  createdAt: string | Date | null;
 }
 
 type PaginatedItemsProps = {
@@ -24,6 +21,9 @@ type PaginatedItemsProps = {
   onEdit: (blog: Blog) => void;
   onDelete: (id: number) => void;
 };
+
+// react-paginate ইভেন্ট টাইপ (any ছাড়াই)
+type PageChangeEvent = { selected: number };
 
 const PaginatedItems: React.FC<PaginatedItemsProps> = ({
   blogs,
@@ -37,7 +37,7 @@ const PaginatedItems: React.FC<PaginatedItemsProps> = ({
   const currentItems = blogs.slice(itemOffset, endOffset);
   const pageCount = Math.ceil(blogs.length / itemsPerPage);
 
-  const handlePageClick = (event: { selected: number }) => {
+  const handlePageClick = (event: PageChangeEvent) => {
     const newOffset = (event.selected * itemsPerPage) % blogs.length;
     setItemOffset(newOffset);
   };
