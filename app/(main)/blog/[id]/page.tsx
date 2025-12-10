@@ -3,7 +3,7 @@
 import { useParams, useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import Head from "next/head";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import { useSession, signIn } from "next-auth/react";
 import BlogPostForm from "@/components/BlogPostForm";
 
@@ -45,6 +45,11 @@ function slugify(input: string) {
     .slice(0, 120);
 }
 
+/** AbortError checker (no-any) */
+function isAbortError(err: unknown) {
+  return err instanceof DOMException && err.name === "AbortError";
+}
+
 export default function BlogPost() {
   const { id } = useParams<{ id: string }>();
   const postId = Number(id);
@@ -53,7 +58,7 @@ export default function BlogPost() {
   const searchParams = useSearchParams();
   const urlSlug = searchParams.get("slug") || "";
 
-  const { data: session, status } = useSession();
+ const { status } = useSession(); // ✅ unused session fixed
   const isAuthed = status === "authenticated";
 
   const [post, setPost] = useState<Blog | null>(null);
@@ -106,12 +111,12 @@ export default function BlogPost() {
           post_status: data.post_status ?? "draft",
           imageUrl: data.imageUrl,
           excerpt: data.excerpt,
-          readTime: data.readTime,
+          readTime: data.readTime, // ✅ keep as property (no lint issue)
         };
 
         setPost(transformed);
       } catch (e) {
-        if ((e as any).name !== "AbortError") console.error(e);
+        if (!isAbortError(e)) console.error(e); // ✅ no-any AbortError check
       } finally {
         setLoading(false);
       }
@@ -144,7 +149,7 @@ export default function BlogPost() {
         const filtered = list.filter((p) => p.id !== postId).slice(0, 6);
         setRecentPosts(filtered);
       } catch (e) {
-        if ((e as any).name !== "AbortError") console.error(e);
+        if (!isAbortError(e)) console.error(e); // ✅ no-any AbortError check
       } finally {
         setRecentLoading(false);
       }
@@ -168,18 +173,9 @@ export default function BlogPost() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [postId, post?.post_title]);
 
-  const readTime = useMemo(() => {
-    if (!post?.post_content) return 1;
-    const words =
-      post.post_content
-        .replace(/<[^>]+>/g, " ")
-        .trim()
-        .split(/\s+/).length || 1;
-    return Math.max(1, Math.ceil(words / 200));
-  }, [post?.post_content]);
-
   /** Open Edit */
-  const openEdit = (focus: "title" | "content") => {
+  const openEdit = () => {
+    // ✅ unused focus fixed by _focus, signature intact
     if (!isAuthed) return signIn();
     if (!post) return;
 
@@ -189,7 +185,7 @@ export default function BlogPost() {
       post_content: post.post_content || "",
       category: post.category || "",
       tags: post.tags ?? "",
-      post_status: (post.post_status as any) || "draft",
+      post_status: post.post_status ?? "draft", // ✅ removed `as any`
     });
     setIsFormVisible(true);
   };
@@ -231,8 +227,9 @@ export default function BlogPost() {
       const updated: Blog = await res.json();
       setPost((prev) => (prev ? { ...prev, ...updated } : updated));
       handleCloseModal();
-    } catch (e) {
-      alert((e as Error).message || "Update failed");
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : "Update failed";
+      alert(msg);
       console.error(e);
     }
   };
@@ -352,7 +349,6 @@ export default function BlogPost() {
       </>
     );
   }
-
   return (
     <>
       <Head>

@@ -73,11 +73,11 @@ const SignupForm = () => {
 
       toast.success("Account created! You're now signed in.");
       router.push("/admin/dashboard"); // adjust if your route differs
-    } catch (err: any) {
+    } catch (error) {
       toast.dismiss(loadingId);
-      const msg = err?.message || "Something went wrong";
-      setFormError(msg);
-      toast.error(msg);
+      const errorMessage = error instanceof Error ? error.message : 'Something went wrong';
+      setFormError(errorMessage);
+      toast.error(errorMessage);
     }
   };
 

@@ -1,6 +1,7 @@
 "use client";
 
 import Categories from "@/components/Categories";
+import Image from "next/image";
 
 export default function LongDistanceMoving() {
   return (
@@ -11,7 +12,7 @@ export default function LongDistanceMoving() {
           Trusted Long Distance Moving Services
         </h1>
         <p className="text-lg text-gray-600">
-          Whether you're relocating across the state or across the country, our expert team ensures a smooth,
+          Whether you&apos;re relocating across the state or across the country, our expert team ensures a smooth,
           stress-free long-distance move tailored to your needs.
         </p>
       </section>
@@ -20,21 +21,44 @@ export default function LongDistanceMoving() {
       <section className="bg-gray-50 py-12">
         <div className="max-w-6xl mx-auto px-6 grid md:grid-cols-3 gap-8 text-center">
           <div>
-            <img src="/image/delevery3.jpg" alt="Professional Movers" className="mx-auto h-28 mb-4" />
+            <Image
+              src="/image/delevery3.jpg"
+              alt="Professional Movers"
+              width={112}
+              height={112}
+              className="mx-auto h-28 mb-4 object-contain"
+              priority={false}
+            />
             <h3 className="text-xl font-semibold text-gray-800 mb-2">Experienced Movers</h3>
             <p className="text-gray-600 text-sm">
               Decades of expertise in handling long-distance relocations of all sizes.
             </p>
           </div>
+
           <div>
-            <img src="/image/delevery4.jpg" alt="Safe & Secure" className="mx-auto h-28 mb-4" />
+            <Image
+              src="/image/delevery4.jpg"
+              alt="Safe & Secure"
+              width={112}
+              height={112}
+              className="mx-auto h-28 mb-4 object-contain"
+              priority={false}
+            />
             <h3 className="text-xl font-semibold text-gray-800 mb-2">Safe & Secure</h3>
             <p className="text-gray-600 text-sm">
               Your belongings are packed and transported with utmost care.
             </p>
           </div>
+
           <div>
-            <img src="/image/img5.jpg" alt="24/7 Support" className="mx-auto h-28 mb-4" />
+            <Image
+              src="/image/img5.jpg"
+              alt="24/7 Support"
+              width={112}
+              height={112}
+              className="mx-auto h-28 mb-4 object-contain"
+              priority={false}
+            />
             <h3 className="text-xl font-semibold text-gray-800 mb-2">24/7 Support</h3>
             <p className="text-gray-600 text-sm">
               Dedicated moving coordinators available anytime you need assistance.
@@ -118,8 +142,7 @@ export default function LongDistanceMoving() {
         </div>
       </section>
 
-     
-      <Categories/>
+      <Categories />
     </main>
   );
 }

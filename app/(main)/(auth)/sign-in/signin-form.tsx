@@ -63,11 +63,11 @@ const SigninForm = () => {
       const message = res?.error || "Invalid credentials. Please check your email and password.";
       setFormError(message);
       toast.error(message);
-    } catch (err: any) {
+    } catch (error) {
       toast.dismiss(dismiss);
-      const message = err?.message || "Something went wrong while signing in.";
-      setFormError(message);
-      toast.error(message);
+      const errorMessage = error instanceof Error ? error.message : 'Something went wrong while signing in.';
+      setFormError(errorMessage);
+      toast.error(errorMessage);
     }
   };
 

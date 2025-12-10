@@ -14,7 +14,10 @@ export async function POST(req: Request) {
       !data.lead_type ||
       !data.lead_source
     ) {
-      return NextResponse.json({ message: "Missing required fields" }, { status: 400 });
+      return NextResponse.json(
+        { message: "Missing required fields" },
+        { status: 400 }
+      );
     }
 
     // normalize
@@ -56,8 +59,8 @@ export async function POST(req: Request) {
         fromIp: data.from_ip ?? "",
         firstName: data.first_name ?? "",
         lastName: data.last_name ?? "",
-        email: emailNorm,               // normalized
-        phone: phoneNorm,               // normalized
+        email: emailNorm,
+        phone: phoneNorm,
         fromState: data.from_state ?? "",
         fromStateCode: data.from_state_code ?? "",
         fromCity: data.from_city ?? "",
@@ -81,16 +84,25 @@ export async function POST(req: Request) {
       { message: "Form submitted successfully", data: formSubmission },
       { status: 200 }
     );
-  } catch (error: any) {
+  } catch (error: unknown) {
     // fallback if DB unique constraint exists
-    if (String(error?.code) === "P2002") {
+    const code =
+      error && typeof error === "object"
+        ? (error as Record<string, unknown>).code
+        : undefined;
+
+    if (String(code) === "P2002") {
       return NextResponse.json(
         { message: "Duplicate email or phone number" },
         { status: 409 }
       );
     }
+
+    const message =
+      error instanceof Error ? error.message : "Unknown error";
+
     return NextResponse.json(
-      { message: "Server error", error: error?.message ?? "Unknown error" },
+      { message: "Server error", error: message },
       { status: 500 }
     );
   }

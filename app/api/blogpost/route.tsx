@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import prisma from "@/prisma/prisma";
+import type { Prisma } from "@prisma/client";
 
 export const revalidate = 60; // ✅ 60s cache on GET (server-side)
 
@@ -34,6 +35,15 @@ function computeMetaFromContent(rawContent: string) {
   const imageUrl = extractFirstImageServer(rawContent);
 
   return { plainText, readTime, excerpt, imageUrl };
+}
+
+/** ✅ safe extractor for json/html content (replaces all as any) */
+function extractContent(content: unknown): string {
+  if (content && typeof content === "object") {
+    const maybeText = (content as Record<string, unknown>)["text"];
+    if (typeof maybeText === "string") return maybeText;
+  }
+  return String(content ?? "");
 }
 
 // -------------------- POST: create --------------------
@@ -96,7 +106,7 @@ export async function PUT(req: Request) {
       return NextResponse.json({ error: "ID is required" }, { status: 400 });
     }
 
-    const data: any = {};
+    const data: Prisma.BlogPostUpdateInput = {}; // ✅ any removed
     if (post_title !== undefined) data.post_title = post_title;
     if (post_content !== undefined) data.post_content = post_content;
     if (category !== undefined) data.category = category;
@@ -189,11 +199,7 @@ export async function GET(req: Request) {
         return NextResponse.json({ error: "Not found" }, { status: 404 });
       }
 
-      const rawContent =
-        typeof post.post_content === "object" &&
-        (post.post_content as any)?.text
-          ? (post.post_content as any).text
-          : String(post.post_content || "");
+      const rawContent = extractContent(post.post_content); // ✅ no any
 
       const { readTime, excerpt, imageUrl } =
         computeMetaFromContent(rawContent);
@@ -245,9 +251,9 @@ export async function GET(req: Request) {
     const limit = Math.max(1, Number(searchParams.get("limit") || 6)); // ✅ NO CAP
     const skip = (page - 1) * limit;
 
-    const filters: any = {};
+    const filters: Prisma.BlogPostWhereInput = {}; // ✅ any removed
     if (category) filters.category = category;
-    if (authorId) filters.post_author = parseInt(authorId);
+    if (authorId) filters.post_author = parseInt(authorId, 10);
 
     // ✅ SAFE prisma search (title/category/tags only)
     if (q) {
@@ -277,11 +283,7 @@ export async function GET(req: Request) {
 
     const sortable = allPosts
       .map((item) => {
-        const rawContent =
-          typeof item.post_content === "object" &&
-          (item.post_content as any)?.text
-            ? (item.post_content as any).text
-            : String(item.post_content || "");
+        const rawContent = extractContent(item.post_content); // ✅ no any
 
         return {
           id: item.id,

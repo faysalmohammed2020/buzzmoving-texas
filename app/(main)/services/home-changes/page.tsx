@@ -1,6 +1,7 @@
 "use client";
 
 import Categories from "@/components/Categories";
+import Image from "next/image";
 
 export default function HomeChanges() {
   return (
@@ -20,21 +21,44 @@ export default function HomeChanges() {
       <section className="bg-gray-50 py-12">
         <div className="max-w-6xl mx-auto px-6 grid md:grid-cols-3 gap-8 text-center">
           <div>
-            <img src="/image/quality.jpg" alt="High Quality Work" className="mx-auto h-28 mb-4 object-contain" />
+            <Image
+              src="/image/quality.jpg"
+              alt="High Quality Work"
+              width={112}
+              height={112}
+              className="mx-auto h-28 mb-4 object-contain"
+              priority={false}
+            />
             <h3 className="text-xl font-semibold text-gray-800 mb-2">High-Quality Work</h3>
             <p className="text-gray-600 text-sm">
               We use top-grade materials and skilled labor to ensure long-lasting results.
             </p>
           </div>
+
           <div>
-            <img src="/image/design.png" alt="Custom Design" className="mx-auto h-28 mb-4 object-contain" />
+            <Image
+              src="/image/design.png"
+              alt="Custom Design"
+              width={112}
+              height={112}
+              className="mx-auto h-28 mb-4 object-contain"
+              priority={false}
+            />
             <h3 className="text-xl font-semibold text-gray-800 mb-2">Custom Design</h3>
             <p className="text-gray-600 text-sm">
               Our team works with you to design spaces that reflect your style and needs.
             </p>
           </div>
+
           <div>
-            <img src="/image/support.webp" alt="Project Support" className="mx-auto h-28 mb-4 object-contain" />
+            <Image
+              src="/image/support.webp"
+              alt="Project Support"
+              width={112}
+              height={112}
+              className="mx-auto h-28 mb-4 object-contain"
+              priority={false}
+            />
             <h3 className="text-xl font-semibold text-gray-800 mb-2">Complete Support</h3>
             <p className="text-gray-600 text-sm">
               From consultation to completion, we handle everything so you can relax.
@@ -140,7 +164,6 @@ export default function HomeChanges() {
         </div>
       </section>
 
-     
       <Categories />
     </main>
   );

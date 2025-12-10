@@ -1,6 +1,7 @@
 "use client";
 
 import Categories from "@/components/Categories";
+import Image from "next/image";
 
 export default function AutoTransportService() {
   return (
@@ -19,21 +20,44 @@ export default function AutoTransportService() {
       <section className="bg-gray-50 py-12">
         <div className="max-w-6xl mx-auto px-6 grid md:grid-cols-3 gap-8 text-center">
           <div>
-            <img src="/image/opencarier.jpg" alt="Open carrier transport" className="mx-auto h-28 mb-4 object-contain" />
+            <Image
+              src="/image/opencarier.jpg"
+              alt="Open carrier transport"
+              width={112}
+              height={112}
+              className="mx-auto h-28 mb-4 object-contain"
+              priority={false}
+            />
             <h3 className="text-xl font-semibold text-gray-800 mb-2">Open & Enclosed</h3>
             <p className="text-gray-600 text-sm">
               Choose budget-friendly open carriers or premium enclosed trailers for extra protection.
             </p>
           </div>
+
           <div>
-            <img src="/image/insured.png" alt="Fully insured shipments" className="mx-auto h-28 mb-4 object-contain" />
+            <Image
+              src="/image/insured.png"
+              alt="Fully insured shipments"
+              width={112}
+              height={112}
+              className="mx-auto h-28 mb-4 object-contain"
+              priority={false}
+            />
             <h3 className="text-xl font-semibold text-gray-800 mb-2">Fully Insured</h3>
             <p className="text-gray-600 text-sm">
               Comprehensive coverage and vetted carriers for complete peace of mind.
             </p>
           </div>
+
           <div>
-            <img src="/image/real-time.jpg" alt="Real-time shipment tracking" className="mx-auto h-28 mb-4 object-contain" />
+            <Image
+              src="/image/real-time.jpg"
+              alt="Real-time shipment tracking"
+              width={112}
+              height={112}
+              className="mx-auto h-28 mb-4 object-contain"
+              priority={false}
+            />
             <h3 className="text-xl font-semibold text-gray-800 mb-2">Real-Time Tracking</h3>
             <p className="text-gray-600 text-sm">
               Stay updated from pickup to drop-off with proactive status alerts.
@@ -143,6 +167,7 @@ export default function AutoTransportService() {
           ))}
         </div>
       </section>
+
       <Categories />
     </main>
   );

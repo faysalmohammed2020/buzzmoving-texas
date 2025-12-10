@@ -1,27 +1,8 @@
 'use client'
 
 import AdminDashboard from "@/components/AdminDashboard";
-import {  Cog6ToothIcon } from "@heroicons/react/24/outline";
-import { useSession, signOut } from "next-auth/react";
-import { useState } from "react";
 const DashboardPage: React.FC = () => {
-  const { data: session } = useSession();
-  const [showProfileMenu, setShowProfileMenu] = useState(false);
-
-  // Get user initials for avatar
-  const getUserInitials = () => {
-    if (session?.user?.name) {
-      return session.user.name
-        .split(' ')
-        .map(n => n[0])
-        .join('')
-        .toUpperCase()
-        .slice(0, 2);
-    }
-    return "U";
-  };
-
-  return (
+return (
     <div>
       {/* Header */}
        <header className="bg-white border-b border-gray-200 px-6 py-4">

@@ -3,17 +3,15 @@ import { NextResponse } from "next/server";
 import prisma from "@/prisma/prisma";
 import sanitizeHtml from "sanitize-html";
 import { load, CheerioAPI, Element } from "cheerio";
+import type { Prisma } from "@prisma/client"; // ✅ added type import
 
-// ✅ Prod build এ Node APIs নিশ্চিন্তে ব্যবহার করতে
 export const runtime = "nodejs";
-// ✅ API টা static cache না হয়ে live থাকুক
 export const dynamic = "force-dynamic";
 
 // --- helper: wrap orphan cells/rows into proper tables ---
 function normalizeTables(rawHtml: string) {
   const $: CheerioAPI = load(rawHtml, { decodeEntities: false });
 
-  // 1) Wrap any <td>/<th> not inside a <tr> into a <tr>
   $("td, th").each((_, el) => {
     const $el = $(el);
     if ($el.closest("tr").length === 0) {
@@ -22,7 +20,6 @@ function normalizeTables(rawHtml: string) {
     }
   });
 
-  // 2) Group orphan <tr> into a proper <table><tbody>...</tbody>
   const orphanTrs = $("tr").filter((_, el) => $(el).closest("table").length === 0);
 
   orphanTrs.each((_, el) => {
@@ -32,12 +29,11 @@ function normalizeTables(rawHtml: string) {
 
     const group: Element[] = [];
 
-    // find first sibling in the consecutive orphan-tr block
     let start = $tr;
     while (start.prev().is("tr") && start.prev().closest("table").length === 0) {
       start = start.prev();
     }
-    // collect consecutive orphan trs
+
     let cur = start;
     while (cur.is("tr") && cur.closest("table").length === 0) {
       group.push(cur.get(0));
@@ -59,7 +55,6 @@ function normalizeTables(rawHtml: string) {
 
 // --- sanitizer: keep tables + images safely ---
 function sanitizeKeepTablesAndImages(html: string) {
-  // block dangerous image src (e.g., javascript:)
   const clean = sanitizeHtml(html, {
     allowedTags: sanitizeHtml.defaults.allowedTags.concat([
       "img", "figure", "figcaption",
@@ -70,15 +65,13 @@ function sanitizeKeepTablesAndImages(html: string) {
       img: ["src", "alt", "width", "height", "class", "style"],
       "*": ["colspan", "rowspan", "class", "style"],
     },
-    // allow http/https and (optionally) data URIs for pasted images
     allowedSchemes: ["http", "https", "mailto"],
     allowedSchemesByTag: {
-      img: ["http", "https", "data"], // data remove করতে চাইলে ["http","https"] রাখো
+      img: ["http", "https", "data"],
     },
     allowProtocolRelative: true,
-    // Prevent e.g. <img src="javascript:...">
     transformTags: {
-      img: (tagName, attribs) => {
+      img: (_tagName, attribs) => {
         const src = attribs.src || "";
         const unsafe = /^\s*javascript:/i.test(src);
         return {
@@ -98,9 +91,9 @@ export async function GET(req: Request) {
     const category = searchParams.get("category");
     const authorId = searchParams.get("authorId");
 
-    const filters: any = {};
+    const filters: Prisma.BlogPostWhereInput = {}; // ✅ any removed
     if (category) filters.category = category;
-    if (authorId) filters.post_author = parseInt(authorId);
+    if (authorId) filters.post_author = parseInt(authorId, 10);
 
     const blogPosts = await prisma.blogPost.findMany({
       where: filters,

@@ -1,10 +1,5 @@
 import { JSX } from "react";
 import { LuLayoutDashboard } from "react-icons/lu";
-import { FiFolder, FiImage } from "react-icons/fi";
-import { RiArticleLine } from "react-icons/ri";
-import { HiOutlineUserGroup } from "react-icons/hi";
-import { AiOutlineBarChart, AiOutlineSetting } from "react-icons/ai";
-import { MdOutlineSettings } from "react-icons/md";
 import { FaPenFancy } from "react-icons/fa";
 
 // Define the structure of each sidebar item

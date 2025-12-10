@@ -79,10 +79,10 @@ type Lead = {
 };
 
 type TrendInfo = { value: string; isPositive: boolean };
-
-const normalizeCommentStatus = (val: unknown) => {
-  const s = String(val ?? "").toLowerCase();
-  return s === "open" || s === "closed" ? s : "open";
+type DailyCount = { date: string; count: number };
+type StatsState = {
+  dailyLeads: DailyCount[];
+  dailyResponses: DailyCount[];
 };
 
 // ---------- helpers ----------
@@ -122,12 +122,17 @@ const numberFormatter = new Intl.NumberFormat();
 // ✅ idle callback helper
 const runIdle = (cb: () => void) => {
   if (typeof window === "undefined") return cb();
-  if (window.requestIdleCallback) { 
+  if ("requestIdleCallback" in window) {
     window.requestIdleCallback(cb, { timeout: 500 });
   } else {
     setTimeout(cb, 0);
   }
 };
+
+// ✅ AbortError checker
+function isAbortError(err: unknown) {
+  return err instanceof DOMException && err.name === "AbortError";
+}
 
 // ---------- Skeleton helpers ----------
 const SkeletonBox: React.FC<{ className?: string }> = React.memo(
@@ -171,16 +176,17 @@ const AdminDashboard: React.FC = () => {
   const [isEditModalVisible, setIsEditModalVisible] = useState<boolean>(false);
   const [editBlogData, setEditBlogData] = useState<Blog | null>(null);
 
-  const [stats, setStats] = useState({
-    dailyLeads: [] as any[],
-    dailyResponses: [] as any[],
+  const [stats, setStats] = useState<StatsState>({
+    dailyLeads: [],
+    dailyResponses: [],
   });
+
   const [totalLeads, setTotalLeads] = useState(0);
-  const [totalResponses, setTotalResponses] = useState(0);
+  const [, setTotalResponses] = useState(0); // setter only (value unused)
   const [statsLoading, setStatsLoading] = useState<boolean>(true);
 
   const [submissions, setSubmissions] = useState<Lead[]>([]);
-  const [responses, setResponses] = useState<any[]>([]);
+  const [responses, setResponses] = useState<number[]>([]);
   const [subsLoading, setSubsLoading] = useState<boolean>(true);
   const [subsError, setSubsError] = useState<string | null>(null);
   const [subsPage, setSubsPage] = useState(1);
@@ -200,9 +206,9 @@ const AdminDashboard: React.FC = () => {
           cache: "no-store",
           signal: controller.signal,
         });
-        const json = await res.json();
+        const json: { count?: number } = await res.json();
         setTotalVisitorsValue(json.count || 0);
-      } catch (e) {}
+      } catch {}
     };
 
     loadVisitors();
@@ -257,7 +263,6 @@ const AdminDashboard: React.FC = () => {
             ? items.length
             : payload.meta?.total || payload.total || items.length;
 
-        // ✅ transform + precompute date once
         const transformed: Blog[] = items.map((item) => {
           const createdAt = item.createdAt ?? item.post_date ?? null;
           const d = createdAt ? new Date(createdAt) : null;
@@ -265,21 +270,19 @@ const AdminDashboard: React.FC = () => {
             id: Number(item.id),
             post_title: String(item.post_title || ""),
             post_status: String(item.post_status ?? "draft"),
-            comment_status: normalizeCommentStatus(item.comment_status),
             createdAt,
             _d: d && !isNaN(d.getTime()) ? d : null,
           };
         });
 
-        // ✅ idle + transition to avoid UI freeze
         runIdle(() => {
           startTransition(() => {
             setBlogs(transformed);
             setTotalBlogs(total);
           });
         });
-      } catch (err: any) {
-        if (err?.name === "AbortError") return;
+      } catch (err: unknown) {
+        if (isAbortError(err)) return;
         console.error(err);
         setErrorBlogs("Failed to fetch blogs. Please try again later.");
       } finally {
@@ -298,7 +301,13 @@ const AdminDashboard: React.FC = () => {
         setStatsLoading(true);
         const res = await fetch("/api/admin/leads/stats", { cache: "no-store" });
         if (!res.ok) throw new Error("Failed stats");
-        const data = await res.json();
+        const data: {
+          dailyLeads?: DailyCount[];
+          dailyResponses?: DailyCount[];
+          totalLeads?: number;
+          totalResponses?: number;
+        } = await res.json();
+
         setStats({
           dailyLeads: data.dailyLeads ?? [],
           dailyResponses: data.dailyResponses ?? [],
@@ -312,7 +321,7 @@ const AdminDashboard: React.FC = () => {
       }
     };
     fetchStats();
-  }, []);
+  }, [setTotalResponses]);
 
   // ---------- Fetch Submissions & Responses ----------
   useEffect(() => {
@@ -344,12 +353,14 @@ const AdminDashboard: React.FC = () => {
         runIdle(() => {
           startTransition(() => {
             setSubmissions(subData ?? []);
-            setResponses((respData ?? []).slice(0, 5));
+            setResponses(
+              Array.isArray(respData) ? (respData as number[]).slice(0, 5) : []
+            );
             setSubsPage(1);
           });
         });
-      } catch (e: any) {
-        if (e?.name === "AbortError") return;
+      } catch (e: unknown) {
+        if (isAbortError(e)) return;
         console.error("Failed to load submissions/responses", e);
         setSubsError("Failed to load submissions.");
       } finally {
@@ -377,7 +388,6 @@ const AdminDashboard: React.FC = () => {
     [blogs]
   );
 
-  // ---------- Derived / memoized data ----------
   const recentBlogs = useMemo(() => blogs.slice(0, 5), [blogs]);
   const recentSubmissions = useMemo(
     () => submissionsWithDate.slice(0, 5),
@@ -386,18 +396,16 @@ const AdminDashboard: React.FC = () => {
 
   const weeklyPerformanceData = useMemo(
     () =>
-      stats.dailyLeads.map((lead: any, index: number) => ({
+      stats.dailyLeads.map((lead: DailyCount, index: number) => ({
         date: lead.date,
         leads: lead.count,
-        responses: (stats.dailyResponses[index] as any)?.count || 0,
+        responses: stats.dailyResponses[index]?.count ?? 0,
       })),
     [stats.dailyLeads, stats.dailyResponses]
   );
 
   const {
     totalVisitorsTrend,
-    thisMonthVisitorsValue,
-    thisMonthVisitorsTrend,
     totalBlogsTrend,
     totalSubmissionsTrend,
   } = useMemo(() => {
@@ -562,7 +570,8 @@ const AdminDashboard: React.FC = () => {
   }, []);
 
   const fmt = useCallback(
-    (v: any) => (v === null || v === undefined || v === "" ? "—" : String(v)),
+    (v: unknown) =>
+      v === null || v === undefined || v === "" ? "—" : String(v),
     []
   );
   const fmtDate = useCallback(
@@ -749,7 +758,7 @@ const AdminDashboard: React.FC = () => {
                 </thead>
                 <tbody className="divide-y divide-gray-200">
                   {responses.length > 0 ? (
-                    responses.map((leadId: any, index: number) => (
+                    responses.map((leadId: number, index: number) => (
                       <tr key={index}>
                         <td className="px-5 py-4 whitespace-nowrap">
                           #{leadId}
@@ -925,7 +934,7 @@ const AdminDashboard: React.FC = () => {
         </div>
       </section>
 
-      {/* Recent Blogs (✅ Status column added, ✅ Comments column removed) */}
+      {/* Recent Blogs */}
       <section className="mb-8">
         <div className="bg-white rounded-xl shadow-sm overflow-hidden">
           <div className="p-5 border-b border-gray-200 flex justify-between items-center">
@@ -961,7 +970,6 @@ const AdminDashboard: React.FC = () => {
                         </p>
                       </td>
 
-                      {/* ✅ Status column */}
                       <td className="px-5 py-4 whitespace-nowrap">
                         <span
                           className={`px-2 py-1 rounded-full text-xs font-medium capitalize ${
@@ -1100,7 +1108,6 @@ interface StatCardProps {
 const StatCard: React.FC<StatCardProps> = React.memo(function StatCard({
   title,
   value,
-  trend,
   icon,
   color,
   loading,

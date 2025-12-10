@@ -1,6 +1,7 @@
 "use client";
 
 import Categories from "@/components/Categories";
+import Image from "next/image";
 
 export default function StorageSolutions() {
   return (
@@ -20,21 +21,44 @@ export default function StorageSolutions() {
       <section className="bg-gray-50 py-12">
         <div className="max-w-6xl mx-auto px-6 grid md:grid-cols-3 gap-8 text-center">
           <div>
-            <img src="/image/secure.png" alt="Secure Units" className="mx-auto h-28 mb-4 object-contain" />
+            <Image
+              src="/image/secure.png"
+              alt="Secure Units"
+              width={112}
+              height={112}
+              className="mx-auto h-28 mb-4 object-contain"
+              priority={false}
+            />
             <h3 className="text-xl font-semibold text-gray-800 mb-2">Secure Units</h3>
             <p className="text-gray-600 text-sm">
               24/7 surveillance, gated access, and individually locked storage rooms.
             </p>
           </div>
+
           <div>
-            <img src="/image/climate.png" alt="Climate Control" className="mx-auto h-28 mb-4 object-contain" />
+            <Image
+              src="/image/climate.png"
+              alt="Climate Control"
+              width={112}
+              height={112}
+              className="mx-auto h-28 mb-4 object-contain"
+              priority={false}
+            />
             <h3 className="text-xl font-semibold text-gray-800 mb-2">Climate-Controlled</h3>
             <p className="text-gray-600 text-sm">
               Perfect for sensitive items such as electronics, artwork, and furniture.
             </p>
           </div>
+
           <div>
-            <img src="/image/flexible.png" alt="Flexible Plans" className="mx-auto h-28 mb-4 object-contain" />
+            <Image
+              src="/image/flexible.png"
+              alt="Flexible Plans"
+              width={112}
+              height={112}
+              className="mx-auto h-28 mb-4 object-contain"
+              priority={false}
+            />
             <h3 className="text-xl font-semibold text-gray-800 mb-2">Flexible Plans</h3>
             <p className="text-gray-600 text-sm">
               Choose short-term or long-term rentals with flexible payment options.
@@ -121,6 +145,7 @@ export default function StorageSolutions() {
           ))}
         </div>
       </section>
+
       <Categories />
     </main>
   );
