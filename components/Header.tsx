@@ -379,10 +379,10 @@ const HeaderMenu: React.FC = () => {
       {isMobileMenuOpen && (
         <ul className="absolute top-16 left-0 w-full bg-white shadow-md flex flex-col text-lg md:hidden">
           <li className="px-4 py-2 border-b">
-            <Link href="/home">Home</Link>
+            <Link href="/">Home</Link>
           </li>
           <li className="px-4 py-2 border-b">
-            <Link href="/services">Services</Link>
+            <Link href="/services/long-distance-moving">Services</Link>
           </li>
           <li className="px-4 py-2 border-b">
             <Link href="/about-us/testimonial">About Us</Link>
