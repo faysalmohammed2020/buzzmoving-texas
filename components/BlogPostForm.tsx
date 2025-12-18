@@ -9,9 +9,12 @@ interface BlogPostFormProps {
     post_content: string;
     post_category?: string;
     post_tags?: string;
-  } | null; // Allow null
+
+    // ✅ NEW (Int in DB)
+    post_author?: number | null;
+  } | null;
   onClose: () => void;
-  onUpdate: (updatedBlog: unknown) => void; // ✅ any removed
+  onUpdate: (updatedBlog: unknown) => void;
 }
 
 interface FormData {
@@ -19,7 +22,10 @@ interface FormData {
   title: string;
   content: string;
   category: string;
-  tags?: string; // Made optional
+  tags?: string;
+
+  // ✅ NEW: allow "" so input can be blank
+  authorId: number | "";
 }
 
 const BlogPostForm: React.FC<BlogPostFormProps> = ({
@@ -33,6 +39,9 @@ const BlogPostForm: React.FC<BlogPostFormProps> = ({
     content: initialData?.post_content || "",
     category: initialData?.post_category || "",
     tags: initialData?.post_tags || "",
+
+    // ✅ NEW
+    authorId: typeof initialData?.post_author === "number" ? initialData.post_author : "",
   });
 
   useEffect(() => {
@@ -43,6 +52,7 @@ const BlogPostForm: React.FC<BlogPostFormProps> = ({
         content: initialData.post_content || "",
         category: initialData.post_category || "",
         tags: initialData.post_tags || "",
+        authorId: typeof initialData.post_author === "number" ? initialData.post_author : "",
       });
     }
   }, [initialData]);
@@ -51,43 +61,56 @@ const BlogPostForm: React.FC<BlogPostFormProps> = ({
     e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>
   ) => {
     const { name, value } = e.target;
+
+    // ✅ special handling for number field
+    if (name === "authorId") {
+      const v = value.trim();
+      setFormData((prev) => ({
+        ...prev,
+        authorId: v === "" ? "" : Number(v),
+      }));
+      return;
+    }
+
     setFormData((prev) => ({ ...prev, [name]: value }));
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
 
-    const formToSubmit = {
+    const formToSubmit: Record<string, unknown> = {
       id: formData.id,
-      post_title: formData.title, // Ensure correct field names
+      post_title: formData.title,
       post_content: formData.content,
       category: formData.category,
       tags: formData.tags || "",
     };
 
+    // ✅ only send post_author if provided (Int)
+    if (typeof formData.authorId === "number" && !Number.isNaN(formData.authorId)) {
+      formToSubmit.post_author = formData.authorId;
+    } else {
+      formToSubmit.post_author = null; // or omit; choose based on your DB constraint
+    }
+
     try {
       const response = await fetch("/api/blogpost", {
-        // Ensure correct API path
         method: formData.id ? "PUT" : "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify(formToSubmit),
       });
 
       const result = await response.json();
 
       if (response.ok) {
-        alert(
-          formData.id ? "Blog updated successfully!" : "Blog post created!"
-        );
-        onUpdate(result); // Pass the updated data to parent
+        alert(formData.id ? "Blog updated successfully!" : "Blog post created!");
+        onUpdate(result);
         onClose();
       } else {
-        alert("Failed to save blog post. Please try again.");
+        alert(result?.error || "Failed to save blog post. Please try again.");
       }
     } catch (error: unknown) {
-      console.error(error); // ✅ now used, no-unused-vars gone
+      console.error(error);
       alert("An unexpected error occurred. Please try again.");
     }
   };
@@ -107,6 +130,23 @@ const BlogPostForm: React.FC<BlogPostFormProps> = ({
           className="w-full px-4 py-3 border border-gray-300 rounded-lg"
           placeholder="Enter blog title"
           required
+        />
+      </div>
+
+      {/* ✅ NEW AUTHOR (INT) FIELD */}
+      <div>
+        <label htmlFor="authorId" className="block text-lg font-medium mb-2">
+         Post Author
+        </label>
+        <input
+          type="number"
+          id="authorId"
+          name="authorId"
+          value={formData.authorId}
+          onChange={handleChange}
+          className="w-full px-4 py-3 border border-gray-300 rounded-lg"
+          placeholder="Enter author id (e.g. 1)"
+          min={1}
         />
       </div>
 

@@ -64,7 +64,7 @@ export default function BlogPostClient() {
   const isAuthed = status === "authenticated";
 
   const [post, setPost] = useState<Blog | null>(null);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(false);
 
   // ✅ recent posts state
   const [recentPosts, setRecentPosts] = useState<Blog[]>([]);
