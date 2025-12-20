@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import BlogPostClient from "@/app/(main)/blog/[id]/BlogPostClient";
 
 const SITE_URL_RAW =
-  process.env.NEXT_PUBLIC_BASE_URL ?? "https://www.example.com";
+  process.env.NEXT_PUBLIC_BASE_URL ?? "https://movingquotetexas.com/";
 const SITE_URL = SITE_URL_RAW.replace(/\/$/, "");
 
 function stripHtml(html: string): string {
