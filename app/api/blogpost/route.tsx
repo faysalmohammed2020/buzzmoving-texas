@@ -168,12 +168,116 @@ export async function DELETE(req: Request) {
 }
 
 // -------------------- GET: single OR list --------------------
+// -------------------- GET: single OR list --------------------
 export async function GET(req: Request) {
   try {
     const { searchParams } = new URL(req.url);
-    const idParam = searchParams.get("id");
 
-    // ✅ Single post
+    const idParam = searchParams.get("id");
+    const slugParamRaw = (searchParams.get("slug") || "").trim();
+
+    // ✅ local slugify (server-side)
+    const slugifyServer = (input: string) =>
+      (input || "")
+        .toLowerCase()
+        .normalize("NFKD")
+        .replace(/[\u0300-\u036f]/g, "")
+        .replace(/&/g, "and")
+        .replace(/[^a-z0-9]+/g, "-")
+        .replace(/^-+|-+$/g, "")
+        .slice(0, 120);
+
+    // -------------------- ✅ SLUG: single post --------------------
+    // Priority: slug > id (because root url uses slug)
+    if (slugParamRaw) {
+      const slugParam = slugifyServer(slugParamRaw);
+
+      // 1) Try quick "contains" search to reduce scan
+      // (Not perfect but fast; then validate slugify match)
+      const candidate = await prisma.blogPost.findFirst({
+        where: {
+          post_title: { contains: slugParamRaw.replace(/-/g, " "), mode: "insensitive" },
+        },
+        select: {
+          id: true,
+          post_title: true,
+          post_content: true,
+          category: true,
+          tags: true,
+          post_status: true,
+          createdAt: true,
+          post_date: true,
+          post_excerpt: true,
+        },
+        orderBy: { createdAt: "desc" },
+      });
+
+      if (candidate && slugifyServer(candidate.post_title || "") === slugParam) {
+        const rawContent = extractContent(candidate.post_content);
+        const { readTime, excerpt, imageUrl } = computeMetaFromContent(rawContent);
+
+        return NextResponse.json(
+          {
+            ...candidate,
+            post_content: rawContent,
+            excerpt: candidate.post_excerpt || excerpt,
+            readTime,
+            imageUrl,
+            slug: slugifyServer(candidate.post_title || ""), // ✅ helpful for canonical
+          },
+          { status: 200 }
+        );
+      }
+
+      // 2) Fallback scan (titles only) then fetch by id
+      // We avoid fetching post_content for all rows
+      const titles = await prisma.blogPost.findMany({
+        select: { id: true, post_title: true },
+        orderBy: { createdAt: "desc" },
+      });
+
+      const match = titles.find((p) => slugifyServer(p.post_title || "") === slugParam);
+
+      if (!match?.id) {
+        return NextResponse.json({ error: "Not found" }, { status: 404 });
+      }
+
+      const post = await prisma.blogPost.findUnique({
+        where: { id: match.id },
+        select: {
+          id: true,
+          post_title: true,
+          post_content: true,
+          category: true,
+          tags: true,
+          post_status: true,
+          createdAt: true,
+          post_date: true,
+          post_excerpt: true,
+        },
+      });
+
+      if (!post) {
+        return NextResponse.json({ error: "Not found" }, { status: 404 });
+      }
+
+      const rawContent = extractContent(post.post_content);
+      const { readTime, excerpt, imageUrl } = computeMetaFromContent(rawContent);
+
+      return NextResponse.json(
+        {
+          ...post,
+          post_content: rawContent,
+          excerpt: post.post_excerpt || excerpt,
+          readTime,
+          imageUrl,
+          slug: slugifyServer(post.post_title || ""),
+        },
+        { status: 200 }
+      );
+    }
+
+    // -------------------- ✅ ID: single post --------------------
     if (idParam) {
       const id = Number(idParam);
       if (Number.isNaN(id)) {
@@ -199,10 +303,8 @@ export async function GET(req: Request) {
         return NextResponse.json({ error: "Not found" }, { status: 404 });
       }
 
-      const rawContent = extractContent(post.post_content); // ✅ no any
-
-      const { readTime, excerpt, imageUrl } =
-        computeMetaFromContent(rawContent);
+      const rawContent = extractContent(post.post_content);
+      const { readTime, excerpt, imageUrl } = computeMetaFromContent(rawContent);
 
       return NextResponse.json(
         {
@@ -211,6 +313,7 @@ export async function GET(req: Request) {
           excerpt: post.post_excerpt || excerpt,
           readTime,
           imageUrl,
+          slug: slugifyServer(post.post_title || ""), // ✅ helpful for canonical
         },
         { status: 200 }
       );
@@ -248,10 +351,10 @@ export async function GET(req: Request) {
     const q = (searchParams.get("q") || "").trim(); // ✅ GLOBAL SEARCH
 
     const page = Math.max(1, Number(searchParams.get("page") || 1));
-    const limit = Math.max(1, Number(searchParams.get("limit") || 6)); // ✅ NO CAP
+    const limit = Math.max(1, Number(searchParams.get("limit") || 6));
     const skip = (page - 1) * limit;
 
-    const filters: Prisma.BlogPostWhereInput = {}; // ✅ any removed
+    const filters: Prisma.BlogPostWhereInput = {};
     if (category) filters.category = category;
     if (authorId) filters.post_author = parseInt(authorId, 10);
 
@@ -283,7 +386,7 @@ export async function GET(req: Request) {
 
     const sortable = allPosts
       .map((item) => {
-        const rawContent = extractContent(item.post_content); // ✅ no any
+        const rawContent = extractContent(item.post_content);
 
         return {
           id: item.id,
@@ -297,7 +400,6 @@ export async function GET(req: Request) {
           _hasRealImage: hasImageFast(rawContent),
         };
       })
-      // ✅ EXTRA in-memory content search (safe even if post_content Json)
       .filter((item) => {
         if (!q) return true;
         const needle = q.toLowerCase();
@@ -309,7 +411,6 @@ export async function GET(req: Request) {
         );
       });
 
-    // ✅ image-first sort
     sortable.sort((a, b) => {
       if (a._hasRealImage !== b._hasRealImage) {
         return Number(b._hasRealImage) - Number(a._hasRealImage);
@@ -322,9 +423,7 @@ export async function GET(req: Request) {
     const pageSlice = sortable.slice(skip, skip + limit);
 
     const paginated = pageSlice.map((item) => {
-      const { readTime, excerpt, imageUrl } = computeMetaFromContent(
-        item.post_content
-      );
+      const { readTime, excerpt, imageUrl } = computeMetaFromContent(item.post_content);
 
       return {
         id: item.id,
@@ -359,3 +458,4 @@ export async function GET(req: Request) {
     );
   }
 }
+

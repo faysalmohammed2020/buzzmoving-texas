@@ -1,9 +1,9 @@
 "use client";
 
-import { useParams, useRouter, useSearchParams } from "next/navigation";
+import { useRouter } from "next/navigation";
 import Link from "next/link";
 import Head from "next/head";
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useSession, signIn } from "next-auth/react";
 import BlogPostForm from "@/components/BlogPostForm";
 
@@ -19,6 +19,7 @@ interface Blog {
   imageUrl?: string;
   excerpt?: string;
   readTime?: number;
+  slug?: string; // ✅ optional
 }
 
 /* ---------- helpers ---------- */
@@ -52,13 +53,35 @@ function isAbortError(err: unknown) {
   return err instanceof DOMException && err.name === "AbortError";
 }
 
-export default function BlogPostClient() {
-  const { id } = useParams<{ id: string }>();
-  const postId = Number(id);
+function normalizeSlugParam(slug: string) {
+  // If someone hits /some%20slug, Next params usually decode already
+  // Still, keep it safe:
+  const s = String(slug || "").trim();
+  return s;
+}
 
+function toBlog(data: any): Blog {
+  return {
+    id: data.id,
+    post_title: data.post_title,
+    post_content:
+      typeof data.post_content === "object" && data.post_content?.text
+        ? data.post_content.text
+        : String(data.post_content ?? ""),
+    createdAt: data.createdAt,
+    category: data.category ?? "",
+    tags: data.tags ?? [],
+    post_status: data.post_status ?? "draft",
+    imageUrl: data.imageUrl,
+    excerpt: data.excerpt,
+    readTime: data.readTime,
+    slug: data.slug,
+  };
+}
+
+/** ✅ slug props (root url: /:slug) */
+export default function BlogPostClient({ slug }: { slug: string }) {
   const router = useRouter();
-  const searchParams = useSearchParams();
-  const urlSlug = searchParams.get("slug") || "";
 
   const { status } = useSession();
   const isAuthed = status === "authenticated";
@@ -69,6 +92,8 @@ export default function BlogPostClient() {
   // ✅ recent posts state
   const [recentPosts, setRecentPosts] = useState<Blog[]>([]);
   const [recentLoading, setRecentLoading] = useState(true);
+
+  const normalizedSlug = useMemo(() => normalizeSlugParam(slug), [slug]);
 
   // === unified modal state ===
   const [isFormVisible, setIsFormVisible] = useState(false);
@@ -81,9 +106,14 @@ export default function BlogPostClient() {
     post_status?: "draft" | "publish" | "private" | string;
   } | null>(null);
 
-  /** ✅ Fetch only the single post by id */
+  /**
+   * ✅ Fetch single post by slug
+   * 1) Try /api/blogpost?slug=
+   * 2) If not found, fallback: fetch list and match by slugify(title)
+   */
   useEffect(() => {
-    if (!postId || Number.isNaN(postId)) {
+    if (!normalizedSlug) {
+      setPost(null);
       setLoading(false);
       return;
     }
@@ -93,30 +123,67 @@ export default function BlogPostClient() {
     const fetchPost = async () => {
       setLoading(true);
       try {
-        const res = await fetch(`/api/blogpost?id=${postId}`, {
+        // --- 1) direct slug api ---
+        const res = await fetch(
+          `/api/blogpost?slug=${encodeURIComponent(normalizedSlug)}`,
+          { signal: controller.signal }
+        );
+
+        if (res.ok) {
+          const data = await res.json();
+          if (data?.id) {
+            const transformed = toBlog(data);
+            setPost(transformed);
+
+            // ✅ If backend returns canonical slug
+            const trueSlug =
+              typeof data.slug === "string" && data.slug.trim()
+                ? String(data.slug).trim()
+                : "";
+
+            if (trueSlug && trueSlug !== normalizedSlug) {
+              router.replace(`/${encodeURIComponent(trueSlug)}`, { scroll: false });
+            }
+            return;
+          }
+        }
+
+        // --- 2) fallback: list + match ---
+        // Increase limit if needed (depends on your data size)
+        const listRes = await fetch(`/api/blogpost?limit=200&page=1`, {
           signal: controller.signal,
         });
+        if (!listRes.ok) throw new Error("Failed to fetch blog list for fallback");
 
-        if (!res.ok) throw new Error("Failed to fetch blog data");
-        const data = await res.json();
+        const json = await listRes.json();
+        const list: any[] = Array.isArray(json)
+          ? json
+          : Array.isArray(json?.data)
+          ? json.data
+          : [];
 
-        const transformed: Blog = {
-          id: data.id,
-          post_title: data.post_title,
-          post_content:
-            typeof data.post_content === "object" && data.post_content?.text
-              ? data.post_content.text
-              : String(data.post_content ?? ""),
-          createdAt: data.createdAt,
-          category: data.category ?? "",
-          tags: data.tags ?? [],
-          post_status: data.post_status ?? "draft",
-          imageUrl: data.imageUrl,
-          excerpt: data.excerpt,
-          readTime: data.readTime,
-        };
+        const target = normalizedSlug;
+        const matched = list.find((p) => slugify(p?.post_title || "") === target);
 
-        setPost(transformed);
+        if (!matched?.id) {
+          setPost(null);
+          return;
+        }
+
+        // If fallback item doesn't include full content, fetch by id
+        // (works with your existing id API)
+        const idRes = await fetch(`/api/blogpost?id=${matched.id}`, {
+          signal: controller.signal,
+        });
+        if (!idRes.ok) throw new Error("Failed to fetch blog by id (fallback)");
+
+        const byId = await idRes.json();
+        if (!byId?.id) {
+          setPost(null);
+          return;
+        }
+
+        setPost(toBlog(byId));
       } catch (e) {
         if (!isAbortError(e)) console.error(e);
       } finally {
@@ -126,7 +193,7 @@ export default function BlogPostClient() {
 
     fetchPost();
     return () => controller.abort();
-  }, [postId]);
+  }, [normalizedSlug, router]);
 
   /** ✅ Fetch recent/new blog posts for right sidebar */
   useEffect(() => {
@@ -148,7 +215,10 @@ export default function BlogPostClient() {
           : [];
 
         // current post remove + latest 6 only
-        const filtered = list.filter((p) => p.id !== postId).slice(0, 6);
+        const filtered = post?.id
+          ? list.filter((p) => p.id !== post.id).slice(0, 6)
+          : list.slice(0, 6);
+
         setRecentPosts(filtered);
       } catch (e) {
         if (!isAbortError(e)) console.error(e);
@@ -159,38 +229,24 @@ export default function BlogPostClient() {
 
     fetchRecent();
     return () => controller.abort();
-  }, [postId]);
+  }, [post?.id]);
 
-  // ✅ ensure URL has ?slug=<slug-from-title>
-  useEffect(() => {
+  /** ✅ Open Edit */
+  const openEdit = (_focus?: "title" | "content") => {
+    void _focus;
+    if (!isAuthed) return signIn();
     if (!post) return;
-    const desired = slugify(post.post_title || "");
-    if (!desired) return;
 
-    if (urlSlug !== desired) {
-      const qs = new URLSearchParams(Array.from(searchParams.entries()));
-      qs.set("slug", desired);
-      router.replace(`/blog/${postId}?${qs.toString()}`, { scroll: false });
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [postId, post?.post_title]);
-
-  /** ✅ Open Edit (FIX: accept optional param so openEdit("title") doesn't crash) */
-const openEdit = (_focus?: "title" | "content") => {
-  void _focus; // ✅ lint fix (explicitly "used")
-  if (!isAuthed) return signIn();
-  if (!post) return;
-
-  setEditBlogData({
-    id: post.id,
-    post_title: post.post_title || "",
-    post_content: post.post_content || "",
-    category: post.category || "",
-    tags: post.tags ?? "",
-    post_status: post.post_status ?? "draft",
-  });
-  setIsFormVisible(true);
-};
+    setEditBlogData({
+      id: post.id,
+      post_title: post.post_title || "",
+      post_content: post.post_content || "",
+      category: post.category || "",
+      tags: post.tags ?? "",
+      post_status: post.post_status ?? "draft",
+    });
+    setIsFormVisible(true);
+  };
 
   /** Close modal */
   const handleCloseModal = () => {
@@ -236,15 +292,13 @@ const openEdit = (_focus?: "title" | "content") => {
     }
   };
 
-  /* ---------- SEO (client-only fallback; real SEO comes from generateMetadata in page.tsx) ---------- */
+  /* ---------- SEO ---------- */
   const title = post?.post_title ?? "Untitled Post";
   const description =
     stripHtml(post?.post_content ?? "").slice(0, 160) ||
     "Read this article on Moving Quote Texas Blog.";
-  const effectiveSlug = slugify(title);
-  const canonical = `${SITE_URL}/blog/${postId}${
-    effectiveSlug ? `?slug=${encodeURIComponent(effectiveSlug)}` : ""
-  }`;
+
+  const canonical = `${SITE_URL}/${encodeURIComponent(normalizedSlug)}`;
 
   const isPublished =
     String(post?.post_status ?? "draft").toLowerCase() === "publish" ||
@@ -373,10 +427,7 @@ const openEdit = (_focus?: "title" | "content") => {
         <meta property="og:description" content={description} />
         <meta property="og:url" content={canonical} />
         <meta name="twitter:card" content="summary" />
-        <meta
-          name="twitter:title"
-          content={`${title} | Moving Quote Texas Blog`}
-        />
+        <meta name="twitter:title" content={`${title} | Moving Quote Texas Blog`} />
         <meta name="twitter:description" content={description} />
         {jsonLd && (
           <script
@@ -386,7 +437,7 @@ const openEdit = (_focus?: "title" | "content") => {
         )}
       </Head>
 
-      {/* ====== YOUR ORIGINAL UI BELOW (UNCHANGED) ====== */}
+      {/* ====== UI (same as your original) ====== */}
       <div className="min-h-screen bg-white relative">
         {/* Header */}
         <header className="py-6 border-b border-slate-100 shadow-sm">
@@ -413,7 +464,7 @@ const openEdit = (_focus?: "title" | "content") => {
           </div>
         </header>
 
-        {/* 3 COLUMN LAYOUT - ULTRA WIDE + RESPONSIVE */}
+        {/* 3 COLUMN LAYOUT */}
         <main
           className="
             mx-auto w-full
@@ -424,14 +475,8 @@ const openEdit = (_focus?: "title" | "content") => {
             gap-6 lg:gap-8 2xl:gap-10
           "
         >
-          {/* ===== LEFT ADS ===== */}
-          <aside
-            className="
-              order-2 lg:order-1
-              lg:col-span-2
-              hidden lg:block
-            "
-          >
+          {/* LEFT ADS */}
+          <aside className="order-2 lg:order-1 lg:col-span-2 hidden lg:block">
             <div className="sticky top-6 space-y-4">
               <div className="border border-slate-200 rounded-xl bg-slate-50 h-[700px] flex items-center justify-center text-slate-400 text-sm">
                 Google Ads Area
@@ -442,33 +487,17 @@ const openEdit = (_focus?: "title" | "content") => {
             </div>
           </aside>
 
-          {/* ===== CENTER BLOG ===== */}
+          {/* CENTER BLOG */}
           <article
-            className="
-              order-1 lg:order-2
-              lg:col-span-8 xl:col-span-7 2xl:col-span-8
-              min-w-0
-            "
+            className="order-1 lg:order-2 lg:col-span-8 xl:col-span-7 2xl:col-span-8 min-w-0"
             itemScope
             itemType="https://schema.org/Article"
           >
-            <div
-              className="
-                max-w-none space-y-8
-                bg-white
-                lg:border lg:border-slate-100
-                lg:rounded-2xl
-                lg:p-8 xl:p-10 2xl:p-12
-                lg:shadow-sm
-              "
-            >
+            <div className="max-w-none space-y-8 bg-white lg:border lg:border-slate-100 lg:rounded-2xl lg:p-8 xl:p-10 2xl:p-12 lg:shadow-sm">
               {/* Title */}
               <div className="relative group">
                 <h1
-                  className="
-                    text-3xl sm:text-4xl md:text-5xl
-                    font-extrabold tracking-tight text-slate-900 leading-snug
-                  "
+                  className="text-3xl sm:text-4xl md:text-5xl font-extrabold tracking-tight text-slate-900 leading-snug"
                   itemProp="headline"
                 >
                   {post.post_title}
@@ -482,20 +511,7 @@ const openEdit = (_focus?: "title" | "content") => {
                     className="absolute -right-2 -top-2 opacity-0 group-hover:opacity-100 focus:opacity-100
                                transition rounded-full bg-cyan-600 text-white p-2 shadow-lg hover:bg-cyan-700"
                   >
-                    <svg
-                      xmlns="http://www.w3.org/2000/svg"
-                      className="h-4 w-4"
-                      fill="none"
-                      viewBox="0 0 24 24"
-                      stroke="currentColor"
-                      strokeWidth={2}
-                    >
-                      <path
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                        d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5M18.5 2.5a2.121 2.121 0 113 3L12 15l-4 1 1-4 9.5-9.5z"
-                      />
-                    </svg>
+                    ✎
                   </button>
                 )}
               </div>
@@ -530,20 +546,7 @@ const openEdit = (_focus?: "title" | "content") => {
                     className="absolute -right-2 -top-2 opacity-0 group-hover:opacity-100 focus:opacity-100
                                transition rounded-full bg-cyan-600 text-white p-2 shadow-lg hover:bg-cyan-700 z-10"
                   >
-                    <svg
-                      xmlns="http://www.w3.org/2000/svg"
-                      className="h-4 w-4"
-                      fill="none"
-                      viewBox="0 0 24 24"
-                      stroke="currentColor"
-                      strokeWidth={2}
-                    >
-                      <path
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                        d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5M18.5 2.5a2.121 2.121 0 113 3L12 15l-4 1 1-4 9.5-9.5z"
-                      />
-                    </svg>
+                    ✎
                   </button>
                 )}
 
@@ -570,15 +573,8 @@ const openEdit = (_focus?: "title" | "content") => {
             </div>
           </article>
 
-          {/* ===== RIGHT RECENT BLOGS ===== */}
-          <aside
-            className="
-              order-3 lg:order-3
-              lg:col-span-2 xl:col-span-3 2xl:col-span-2
-              mt-2 lg:mt-0
-              min-w-0
-            "
-          >
+          {/* RIGHT RECENT BLOGS */}
+          <aside className="order-3 lg:order-3 lg:col-span-2 xl:col-span-3 2xl:col-span-2 mt-2 lg:mt-0 min-w-0">
             <div className="lg:sticky lg:top-6 space-y-6">
               <div className="p-5 sm:p-6 border border-slate-100 rounded-xl bg-white shadow-sm">
                 <h3 className="text-lg font-bold text-slate-900 mb-4">
@@ -592,23 +588,17 @@ const openEdit = (_focus?: "title" | "content") => {
                     <div className="h-20 bg-slate-100 rounded-lg" />
                   </div>
                 ) : recentPosts.length === 0 ? (
-                  <p className="text-sm text-slate-500">
-                    No recent posts found.
-                  </p>
+                  <p className="text-sm text-slate-500">No recent posts found.</p>
                 ) : (
                   <div className="space-y-4">
                     {recentPosts.map((p) => {
                       const pSlug = slugify(p.post_title || "");
-                      const pDesc = stripHtml(
-                        p.excerpt || p.post_content || ""
-                      ).slice(0, 90);
+                      const pDesc = stripHtml(p.excerpt || p.post_content || "").slice(0, 90);
 
                       return (
                         <Link
                           key={p.id}
-                          href={`/blog/${p.id}?slug=${encodeURIComponent(
-                            pSlug
-                          )}`}
+                          href={`/${encodeURIComponent(pSlug)}`}
                           className="block group"
                         >
                           <div className="flex gap-3 p-3 rounded-lg hover:bg-slate-50 transition border border-transparent hover:border-slate-100">
@@ -644,7 +634,7 @@ const openEdit = (_focus?: "title" | "content") => {
             </div>
           </aside>
 
-          {/* ===== MOBILE ADS (shown only on phone) ===== */}
+          {/* MOBILE ADS */}
           <div className="order-4 lg:hidden">
             <div className="mt-6 space-y-4">
               <div className="border border-slate-200 rounded-xl bg-slate-50 h-[220px] flex items-center justify-center text-slate-400 text-sm">

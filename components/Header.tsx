@@ -36,6 +36,18 @@ const isAbortError = (err: unknown) => {
   return false;
 };
 
+// ✅ slugify helper (root route: /:slug)
+function slugify(input: string) {
+  return (input || "")
+    .toLowerCase()
+    .normalize("NFKD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/&/g, "and")
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 120);
+}
+
 const HeaderMenu: React.FC = () => {
   const [isMobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [hoveredMenu, setHoveredMenu] = useState<string | null>(null);
@@ -328,19 +340,25 @@ const HeaderMenu: React.FC = () => {
                         ) : blogsError ? (
                           <p className="text-red-600 text-sm">{blogsError}</p>
                         ) : filteredBlogs.length > 0 ? (
-                          filteredBlogs.map((blog) => (
-                            <div
-                              key={blog.id}
-                              className="group p-2 rounded-xl hover:from-orange-500 hover:to-orange-900 transition-colors duration-300 ease-in-out shadow-md"
-                            >
-                              <Link
-                                href={`/blog/${blog.id}`}
-                                className="text-sm sm:text-base font-medium text-gray-800 hover:underline hover:text-orange-600"
+                          filteredBlogs.map((blog) => {
+                            const blogSlug = slugify(blog.post_title || "");
+                            return (
+                              <div
+                                key={blog.id}
+                                className="group p-2 rounded-xl hover:from-orange-500 hover:to-orange-900 transition-colors duration-300 ease-in-out shadow-md"
                               >
-                                {renderHighlightedTitle(blog.post_title, debouncedQuery)}
-                              </Link>
-                            </div>
-                          ))
+                                <Link
+                                  href={`/${encodeURIComponent(blogSlug)}`}
+                                  className="text-sm sm:text-base font-medium text-gray-800 hover:underline hover:text-orange-600"
+                                >
+                                  {renderHighlightedTitle(
+                                    blog.post_title,
+                                    debouncedQuery
+                                  )}
+                                </Link>
+                              </div>
+                            );
+                          })
                         ) : (
                           <p className="text-red-800 text-sm">No blogs found...</p>
                         )}

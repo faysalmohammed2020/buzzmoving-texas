@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useState, useMemo } from "react";
 import Link from "next/link";
 import Image from "next/image";
 
@@ -17,22 +17,30 @@ interface RelatedPostProps {
   currentPostID: string;
 }
 
+// ✅ slugify helper (same as other places)
+function slugify(input: string) {
+  return (input || "")
+    .toLowerCase()
+    .normalize("NFKD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/&/g, "and")
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 120);
+}
+
 // image url normalize (Invalid URL fix)
 const normalizeImageUrl = (url?: string) => {
   if (!url) return null;
 
-  // already absolute হলে 그대로
   if (url.startsWith("http://") || url.startsWith("https://")) return url;
 
-  // "../../uploads/xxx" -> "/uploads/xxx"
   if (url.includes("/uploads/")) {
     return "/uploads/" + url.split("/uploads/")[1];
   }
 
-  // "/image/xxx" টাইপ already ok
   if (url.startsWith("/")) return url;
 
-  // fallback
   return "/" + url;
 };
 
@@ -49,7 +57,7 @@ const RelatedPost: React.FC<RelatedPostProps> = ({ currentPostID }) => {
         setLoading(true);
         setError(null);
 
-        const res = await fetch("/api/blogpost", {
+        const res = await fetch("/api/blogpost?limit=50&page=1", {
           method: "GET",
           cache: "no-store",
         });
@@ -58,12 +66,9 @@ const RelatedPost: React.FC<RelatedPostProps> = ({ currentPostID }) => {
 
         const json = await res.json();
 
-        // তোমার API: { data: [...] }
         const posts: ApiPost[] = Array.isArray(json?.data) ? json.data : [];
 
         const recentThree = posts
-          // চাইলে Draft বাদ দেওয়ার জন্য এইটা ব্যবহার করো
-          // .filter((p) => p.post_status === "publish")
           .filter((post) => String(post.id) !== String(currentPostID))
           .sort(
             (a, b) =>
@@ -114,39 +119,44 @@ const RelatedPost: React.FC<RelatedPostProps> = ({ currentPostID }) => {
   return (
     <div className="container mx-auto px-4 pb-12">
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
-        {relatedPosts.map((post) => (
-          <div key={post.id} className="bg-white rounded-lg shadow-md p-4">
-            {post.imageUrl && (
-              <Image
-                src={post.imageUrl}
-                alt={post.post_title}
-                width={500}
-                height={200}
-                className="object-cover rounded-md mb-4"
-              />
-            )}
+        {relatedPosts.map((post) => {
+          const postSlug = slugify(post.post_title || "");
+          const href = `/${encodeURIComponent(postSlug)}`;
 
-            <h3 className="text-xl font-semibold mb-2">{post.post_title}</h3>
+          return (
+            <div key={post.id} className="bg-white rounded-lg shadow-md p-4">
+              {post.imageUrl && (
+                <Image
+                  src={post.imageUrl}
+                  alt={post.post_title}
+                  width={500}
+                  height={200}
+                  className="object-cover rounded-md mb-4"
+                />
+              )}
 
-            <p className="text-gray-500 text-sm mb-4">
-              Published on:{" "}
-              {new Date(post.createdAt).toLocaleDateString()}
-            </p>
+              <h3 className="text-xl font-semibold mb-2">{post.post_title}</h3>
 
-            {post.excerpt && (
-              <p className="text-gray-700 leading-relaxed text-base">
-                {post.excerpt.slice(0, 150)}...
+              <p className="text-gray-500 text-sm mb-4">
+                Published on: {new Date(post.createdAt).toLocaleDateString()}
               </p>
-            )}
 
-            <Link
-              href={`/blog/${post.id}`}
-              className="px-4 py-2 mt-4 inline-block text-sm rounded-[5px] font-medium text-white bg-blue-600 shadow hover:bg-blue-800 transition duration-300"
-            >
-              Read more
-            </Link>
-          </div>
-        ))}
+              {post.excerpt && (
+                <p className="text-gray-700 leading-relaxed text-base">
+                  {post.excerpt.slice(0, 150)}...
+                </p>
+              )}
+
+              {/* ✅ root slug route */}
+              <Link
+                href={href}
+                className="px-4 py-2 mt-4 inline-block text-sm rounded-[5px] font-medium text-white bg-blue-600 shadow hover:bg-blue-800 transition duration-300"
+              >
+                Read more
+              </Link>
+            </div>
+          );
+        })}
       </div>
 
       <div className="flex justify-center items-center mt-8">

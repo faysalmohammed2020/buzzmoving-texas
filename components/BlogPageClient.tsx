@@ -31,6 +31,18 @@ interface BlogResponse {
   };
 }
 
+/** ✅ slugify helper */
+function slugify(input: string) {
+  return (input || "")
+    .toLowerCase()
+    .normalize("NFKD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/&/g, "and")
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 120);
+}
+
 /** ✅ normalize any kind of relative image path safely for next/image */
 const normalizeImageUrl = (src?: string) => {
   const fallback = "/placeholder-blog.svg";
@@ -80,9 +92,10 @@ const BlogCard: React.FC<{ post: Blog }> = React.memo(({ post }) => {
   );
 
   const safeImg = normalizeImageUrl(post.imageUrl);
+  const postSlug = useMemo(() => slugify(post.post_title || ""), [post.post_title]);
 
   return (
-    <Link href={`/blog/${post.id}`} className="group">
+    <Link href={`/${encodeURIComponent(postSlug)}`} className="group">
       <div className="bg-white rounded-2xl overflow-hidden shadow-xl hover:shadow-2xl transition-all duration-300 transform group-hover:-translate-y-1 h-full flex flex-col border border-gray-100">
         <div className="relative w-full h-48 overflow-hidden">
           <Image
@@ -105,9 +118,7 @@ const BlogCard: React.FC<{ post: Blog }> = React.memo(({ post }) => {
             {post.post_title}
           </h2>
 
-          <p className="text-gray-600 line-clamp-3 flex-grow">
-            {post.excerpt}...
-          </p>
+          <p className="text-gray-600 line-clamp-3 flex-grow">{post.excerpt}...</p>
 
           <div className="mt-5 pt-4 border-t border-gray-100 flex items-center justify-between text-sm text-gray-500">
             <span>{postDate}</span>
@@ -119,7 +130,6 @@ const BlogCard: React.FC<{ post: Blog }> = React.memo(({ post }) => {
 });
 BlogCard.displayName = "BlogCard";
 
-// ✅ AbortError checker
 function isAbortError(err: unknown) {
   return err instanceof DOMException && err.name === "AbortError";
 }
@@ -143,10 +153,8 @@ export default function BlogPageClient({
   const [error, setError] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
 
-  // ✅ only skip fetch on FIRST render
   const didMountRef = useRef(false);
 
-  // ✅ cache pages for instant back/forward
   const pageCacheRef = useRef<Map<number, Blog[]>>(new Map());
   pageCacheRef.current.set(initialPage, initialBlogs);
 
@@ -156,10 +164,10 @@ export default function BlogPageClient({
       setPageLoading(true);
 
       try {
-        const res = await fetch(
-          `/api/blogpost?page=${page}&limit=${postsPerPage}`,
-          { signal: controller.signal, cache: "no-store" }
-        );
+        const res = await fetch(`/api/blogpost?page=${page}&limit=${postsPerPage}`, {
+          signal: controller.signal,
+          cache: "no-store",
+        });
         if (!res.ok) throw new Error("Failed to fetch blogs");
 
         const json: BlogResponse = await res.json();
@@ -171,7 +179,6 @@ export default function BlogPageClient({
           setTotalPages(json.meta?.totalPages || 1);
         });
 
-        // ✅ prefetch next page silently
         if (page < (json.meta?.totalPages || 1)) {
           fetch(`/api/blogpost?page=${page + 1}&limit=${postsPerPage}`, {
             cache: "no-store",
@@ -195,13 +202,11 @@ export default function BlogPageClient({
   );
 
   useEffect(() => {
-    // ✅ first render skip
     if (!didMountRef.current) {
       didMountRef.current = true;
       return;
     }
 
-    // ✅ serve from cache if exists
     const cached = pageCacheRef.current.get(currentPage);
     if (cached) {
       startTransition(() => setBlogs(cached));
@@ -227,15 +232,7 @@ export default function BlogPageClient({
       return [1, 2, 3, "...", totalPages];
     if (currentPage > totalPages - maxVisiblePages)
       return [1, "...", totalPages - 2, totalPages - 1, totalPages];
-    return [
-      1,
-      "...",
-      currentPage - 1,
-      currentPage,
-      currentPage + 1,
-      "...",
-      totalPages,
-    ];
+    return [1, "...", currentPage - 1, currentPage, currentPage + 1, "...", totalPages];
   };
 
   if (error) {
@@ -256,8 +253,7 @@ export default function BlogPageClient({
             Our Blogs
           </h1>
           <p className="mt-4 text-xl text-gray-600 max-w-2xl mx-auto">
-            Stay updated with our latest industry deep-dives, expert opinions,
-            and essential guides.
+            Stay updated with our latest industry deep-dives, expert opinions, and essential guides.
           </p>
         </div>
 
@@ -282,9 +278,7 @@ export default function BlogPageClient({
                 onClick={() => paginate(currentPage - 1)}
                 disabled={currentPage === 1}
                 className={`px-4 py-2 text-sm font-medium rounded-lg transition ${
-                  currentPage === 1
-                    ? "text-gray-400 cursor-not-allowed"
-                    : "text-gray-700 hover:bg-gray-100"
+                  currentPage === 1 ? "text-gray-400 cursor-not-allowed" : "text-gray-700 hover:bg-gray-100"
                 }`}
               >
                 ← Prev
@@ -313,9 +307,7 @@ export default function BlogPageClient({
                 onClick={() => paginate(currentPage + 1)}
                 disabled={currentPage === totalPages}
                 className={`px-4 py-2 text-sm font-medium rounded-lg transition ${
-                  currentPage === totalPages
-                    ? "text-gray-400 cursor-not-allowed"
-                    : "text-gray-700 hover:bg-gray-100"
+                  currentPage === totalPages ? "text-gray-400 cursor-not-allowed" : "text-gray-700 hover:bg-gray-100"
                 }`}
               >
                 Next →
