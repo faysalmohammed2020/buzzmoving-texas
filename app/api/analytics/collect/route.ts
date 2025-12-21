@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
+import crypto from "crypto";
 
 function safeStr(v: unknown, max = 500) {
   if (typeof v !== "string") return null;
@@ -9,25 +10,42 @@ function safeStr(v: unknown, max = 500) {
 }
 
 function getClientIp(req: Request) {
-  // Vercel / proxies
   const xff = req.headers.get("x-forwarded-for");
   if (xff) {
     const first = xff.split(",")[0]?.trim();
     if (first) return first;
   }
-  // fallback headers
   const realIp = req.headers.get("x-real-ip");
   if (realIp) return realIp.trim();
   return null;
 }
 
+function sha256(input: string) {
+  return crypto.createHash("sha256").update(input).digest("hex");
+}
+
+function getDayKeyUTC(d: Date) {
+  return d.toISOString().slice(0, 10); // YYYY-MM-DD
+}
+
+function isLocalOrPrivateIp(ip: string) {
+  const s = ip.toLowerCase();
+  return (
+    s === "::1" ||
+    s.startsWith("127.") ||
+    s.startsWith("10.") ||
+    s.startsWith("192.168.") ||
+    /^172\.(1[6-9]|2\d|3[0-1])\./.test(s)
+  );
+}
+
+// ✅ pages you never want to track
+const EXCLUDED_PATH_PREFIXES = ["/sign-in", "/sign-up", "/admin/dashboard"];
+
 async function geoLookup(ip: string) {
-  // 1) DB cache first
   const cached = await prisma.geoIpCache.findUnique({ where: { ip } });
   if (cached) return cached;
 
-  // 2) ip-api lookup (HTTP)
-  // Use fields to minimize payload
   const fields = [
     "status",
     "message",
@@ -47,10 +65,7 @@ async function geoLookup(ip: string) {
   const res = await fetch(url, { cache: "no-store" });
   const json = (await res.json()) as any;
 
-  if (json?.status !== "success") {
-    // store negative cache lightly (optional). For now return null.
-    return null;
-  }
+  if (json?.status !== "success") return null;
 
   const created = await prisma.geoIpCache.create({
     data: {
@@ -73,19 +88,32 @@ export async function POST(req: Request) {
 
     const event = safeStr(body?.event, 50);
     if (!event || !["session_start", "page_view", "heartbeat"].includes(event)) {
-      return NextResponse.json({ ok: false, error: "Invalid event" }, { status: 400 });
+      return NextResponse.json(
+        { ok: false, error: "Invalid event" },
+        { status: 400 }
+      );
     }
 
     const visitorId = safeStr(body?.visitorId, 100);
     const sessionId = safeStr(body?.sessionId, 100);
     if (!visitorId || !sessionId) {
-      return NextResponse.json({ ok: false, error: "Missing ids" }, { status: 400 });
+      return NextResponse.json(
+        { ok: false, error: "Missing ids" },
+        { status: 400 }
+      );
     }
 
     const tsNum = typeof body?.ts === "number" ? body.ts : Date.now();
     const ts = new Date(tsNum);
+    const dayKey = getDayKeyUTC(ts);
 
     const path = safeStr(body?.page?.path, 1000) ?? "/";
+
+    // ✅ hard block excluded pages (no store, no count)
+    if (EXCLUDED_PATH_PREFIXES.some((p) => path.startsWith(p))) {
+      return NextResponse.json({ ok: true });
+    }
+
     const title = safeStr(body?.page?.title, 300);
     const referrer = safeStr(body?.page?.referrer, 1000);
 
@@ -106,14 +134,17 @@ export async function POST(req: Request) {
 
     const userId = safeStr(body?.userId, 100);
 
+    // ✅ compute ipHash for daily unique visitors
+    const ip = getClientIp(req);
+    const salt = process.env.ANALYTICS_IP_SALT || "boe-default-salt";
+    const ipHash = ip ? sha256(`${salt}:${ip}`) : null;
+
     // ✅ Geo only for page_view/session_start (NOT heartbeat)
     let country: string | null = null;
     let city: string | null = null;
 
     if (event !== "heartbeat") {
-      const ip = getClientIp(req);
-      // avoid local/private ips
-      if (ip && !ip.startsWith("127.") && ip !== "::1") {
+      if (ip && !isLocalOrPrivateIp(ip)) {
         const geo = await geoLookup(ip);
         country = geo?.country ?? null;
         city = geo?.city ?? null;
@@ -123,10 +154,14 @@ export async function POST(req: Request) {
     await prisma.analyticsEvent.create({
       data: {
         ts,
+        dayKey,
+        ipHash,
+
         event: event as any,
         visitorId,
         sessionId,
         userId: userId ?? null,
+
         path,
         title,
         referrer,

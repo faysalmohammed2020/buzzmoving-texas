@@ -200,6 +200,11 @@ model AnalyticsEvent {
   // Engagement (heartbeat only)
   activeSeconds Int             @default(0) @map("active_seconds")
 
+  ipHash String? @map("ip_hash")
+  dayKey String  @default("") @map("day_key")
+
+  @@index([dayKey])
+  @@index([ipHash, dayKey])
   @@index([ts])
   @@index([event, ts])
   @@index([visitorId, ts])

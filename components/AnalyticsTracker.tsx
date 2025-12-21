@@ -10,8 +10,18 @@ type CollectPayload = {
   userId?: string | null;
   ts: number;
   page: { path: string; title?: string; referrer?: string | null };
-  utm?: { source?: string | null; medium?: string | null; campaign?: string | null };
-  device?: { type?: string | null; os?: string | null; browser?: string | null; screen?: string | null; lang?: string | null };
+  utm?: {
+    source?: string | null;
+    medium?: string | null;
+    campaign?: string | null;
+  };
+  device?: {
+    type?: string | null;
+    os?: string | null;
+    browser?: string | null;
+    screen?: string | null;
+    lang?: string | null;
+  };
   engagement?: { activeSeconds?: number };
 };
 
@@ -21,8 +31,14 @@ const LAST_ACTIVITY_KEY = "boe_last_activity";
 const SESSION_TIMEOUT_MS = 30 * 60 * 1000; // 30 min GA-like
 const HEARTBEAT_SEC = 10;
 
+// ✅ exclude these pages from analytics (no count, no show)
+const EXCLUDED_PATH_PREFIXES = ["/sign-in", "/sign-up", "/admin/dashboard"];
+function isExcludedPath(pathname: string | null | undefined) {
+  if (!pathname) return false;
+  return EXCLUDED_PATH_PREFIXES.some((p) => pathname.startsWith(p));
+}
+
 function uuid(): string {
-  // modern uuid if available
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const c = (globalThis as any)?.crypto;
   if (c?.randomUUID) return c.randomUUID();
@@ -74,7 +90,6 @@ function getDeviceInfo() {
   const lang = navigator.language || "";
   const screen = `${window.screen?.width ?? 0}x${window.screen?.height ?? 0}`;
 
-  // very lightweight detection (good enough; can improve later)
   const isMobile = /Mobi|Android|iPhone|iPad|iPod/i.test(ua);
   const deviceType = isMobile ? "mobile" : "desktop";
 
@@ -108,21 +123,26 @@ async function send(payload: CollectPayload) {
   }
 }
 
-export default function AnalyticsTracker({ userId }: { userId?: string | null }) {
+export default function AnalyticsTracker({
+  userId,
+}: {
+  userId?: string | null;
+}) {
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const visitorIdRef = useRef<string | null>(null);
   const sessionIdRef = useRef<string | null>(null);
-  const engagedSecondsRef = useRef<number>(0);
   const lastHeartbeatAtRef = useRef<number>(0);
   const isActiveRef = useRef<boolean>(true);
 
   // init ids + session rules
   useEffect(() => {
+    // ✅ block excluded paths
+    if (isExcludedPath(pathname)) return;
+
     const vid = getOrCreateVisitorId();
     visitorIdRef.current = vid;
 
-    // session timeout check
     const now = Date.now();
     const last = Number(sessionStorage.getItem(LAST_ACTIVITY_KEY) || "0");
     const expired = !last || now - last > SESSION_TIMEOUT_MS;
@@ -139,15 +159,22 @@ export default function AnalyticsTracker({ userId }: { userId?: string | null })
         sessionId: sid,
         userId: userId ?? null,
         ts: now,
-        page: { path: pathname || "/", title: document.title, referrer: document.referrer || null },
+        page: {
+          path: pathname || "/",
+          title: document.title,
+          referrer: document.referrer || null,
+        },
         utm: getUTM(new URLSearchParams(window.location.search)),
         device: getDeviceInfo(),
       });
     }
-  }, [userId]);
+  }, [userId, pathname]);
 
   // page_view on route change
   useEffect(() => {
+    // ✅ block excluded paths
+    if (isExcludedPath(pathname)) return;
+
     const vid = visitorIdRef.current || getOrCreateVisitorId();
     const sid = sessionIdRef.current || getOrCreateSessionId(false);
     const now = Date.now();
@@ -161,7 +188,9 @@ export default function AnalyticsTracker({ userId }: { userId?: string | null })
       userId: userId ?? null,
       ts: now,
       page: {
-        path: (pathname || "/") + (searchParams?.toString() ? `?${searchParams.toString()}` : ""),
+        path:
+          (pathname || "/") +
+          (searchParams?.toString() ? `?${searchParams.toString()}` : ""),
         title: document.title,
         referrer: document.referrer || null,
       },
@@ -178,32 +207,37 @@ export default function AnalyticsTracker({ userId }: { userId?: string | null })
       sessionStorage.setItem(LAST_ACTIVITY_KEY, String(Date.now()));
     };
     const markInactive = () => {
-      // allow a small grace; heartbeat loop will handle
       isActiveRef.current = false;
     };
 
     const events = ["mousemove", "mousedown", "keydown", "scroll", "touchstart"];
-    events.forEach((e) => window.addEventListener(e, markActive, { passive: true }));
+    events.forEach((e) =>
+      window.addEventListener(e, markActive, { passive: true })
+    );
 
-    document.addEventListener("visibilitychange", () => {
+    const onVis = () => {
       if (document.hidden) markInactive();
       else markActive();
-    });
+    };
+    document.addEventListener("visibilitychange", onVis);
 
     return () => {
       events.forEach((e) => window.removeEventListener(e, markActive));
+      document.removeEventListener("visibilitychange", onVis);
     };
   }, []);
 
   // heartbeat loop (GA-like engagement)
   useEffect(() => {
     const tick = () => {
+      // ✅ block excluded paths (no heartbeat, no session_start)
+      if (isExcludedPath(pathname)) return;
+
       const now = Date.now();
       const last = Number(sessionStorage.getItem(LAST_ACTIVITY_KEY) || "0");
       const expired = !last || now - last > SESSION_TIMEOUT_MS;
 
       if (expired) {
-        // new session
         const sid = getOrCreateSessionId(true);
         sessionIdRef.current = sid;
         sessionStorage.setItem(LAST_ACTIVITY_KEY, String(now));
@@ -214,21 +248,22 @@ export default function AnalyticsTracker({ userId }: { userId?: string | null })
           sessionId: sid,
           userId: userId ?? null,
           ts: now,
-          page: { path: pathname || "/", title: document.title, referrer: document.referrer || null },
+          page: {
+            path: pathname || "/",
+            title: document.title,
+            referrer: document.referrer || null,
+          },
           utm: getUTM(new URLSearchParams(window.location.search)),
           device: getDeviceInfo(),
         });
       }
 
-      // only count active time when visible + active
       const visible = !document.hidden;
       const active = isActiveRef.current;
 
       if (visible && active) {
-        // throttle heartbeat if needed
         if (now - lastHeartbeatAtRef.current >= HEARTBEAT_SEC * 1000) {
           lastHeartbeatAtRef.current = now;
-          engagedSecondsRef.current += HEARTBEAT_SEC;
 
           void send({
             event: "heartbeat",
@@ -236,7 +271,11 @@ export default function AnalyticsTracker({ userId }: { userId?: string | null })
             sessionId: sessionIdRef.current || getOrCreateSessionId(false),
             userId: userId ?? null,
             ts: now,
-            page: { path: pathname || "/", title: document.title, referrer: document.referrer || null },
+            page: {
+              path: pathname || "/",
+              title: document.title,
+              referrer: document.referrer || null,
+            },
             utm: getUTM(new URLSearchParams(window.location.search)),
             device: getDeviceInfo(),
             engagement: { activeSeconds: HEARTBEAT_SEC },

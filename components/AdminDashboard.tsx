@@ -18,7 +18,11 @@ import {
   ComposedChart,
   Legend,
   Area,
+  PieChart,
+  Pie,
+  Cell,
 } from "recharts";
+
 import {
   FaFileAlt,
   FaEye,
@@ -26,7 +30,12 @@ import {
   FaTrash,
   FaGlobeAmericas,
   FaRegChartBar,
-  FaBlog,
+  FaChrome,
+  FaFirefoxBrowser,
+  FaSafari,
+  FaEdge,
+  FaOpera,
+  FaInternetExplorer,
 } from "react-icons/fa";
 
 type ApiBlog = {
@@ -45,7 +54,7 @@ interface Blog {
   post_title: string;
   post_status: string;
   createdAt?: string | null;
-  _d?: Date | null; // ✅ precomputed date
+  _d?: Date | null;
 }
 
 type Lead = {
@@ -85,7 +94,6 @@ type StatsState = {
   dailyResponses: DailyCount[];
 };
 
-// ---------- Analytics (NEW) ----------
 type AnalyticsBucket = "hour" | "day";
 type RangePreset = "24h" | "7d" | "30d" | "custom";
 
@@ -193,7 +201,7 @@ const TableSkeleton: React.FC<{ rows?: number; cols?: number }> = React.memo(
 );
 TableSkeleton.displayName = "TableSkeleton";
 
-// ---------- Analytics helpers (NEW) ----------
+// ---------- Analytics helpers ----------
 const fmtSec = (sec: number) => {
   if (!sec || sec <= 0) return "0s";
   const m = Math.floor(sec / 60);
@@ -207,6 +215,21 @@ const fmtSec = (sec: number) => {
 function toISO(d: Date) {
   return d.toISOString();
 }
+
+// ✅ Devices UI helpers (NEW)
+const pct = (part: number, total: number) =>
+  total <= 0 ? 0 : Math.round((part / total) * 1000) / 10;
+
+const PIE_COLORS = [
+  "#111827",
+  "#3b82f6",
+  "#a855f7",
+  "#10b981",
+  "#f59e0b",
+  "#ef4444",
+  "#06b6d4",
+  "#84cc16",
+];
 
 const AdminDashboard: React.FC = () => {
   const [blogs, setBlogs] = useState<Blog[]>([]);
@@ -223,7 +246,7 @@ const AdminDashboard: React.FC = () => {
   });
 
   const [totalLeads, setTotalLeads] = useState(0);
-  const [, setTotalResponses] = useState(0); // setter only (value unused)
+  const [, setTotalResponses] = useState(0);
   const [statsLoading, setStatsLoading] = useState<boolean>(true);
 
   const [submissions, setSubmissions] = useState<Lead[]>([]);
@@ -238,7 +261,7 @@ const AdminDashboard: React.FC = () => {
   const fullSubsRef = useRef<HTMLDivElement | null>(null);
   const [totalVisitorsValue, setTotalVisitorsValue] = useState(0);
 
-  // ---------- Analytics state (NEW) ----------
+  // ---------- Analytics state ----------
   const [analyticsLoading, setAnalyticsLoading] = useState(true);
   const [analyticsError, setAnalyticsError] = useState<string | null>(null);
   const [rangePreset, setRangePreset] = useState<RangePreset>("7d");
@@ -246,9 +269,26 @@ const AdminDashboard: React.FC = () => {
   const [tab, setTab] = useState<"traffic" | "sources" | "geo" | "devices">(
     "traffic"
   );
+
+  // ✅ keep your existing selector, but devices UI now only uses deviceType/os mainly
   const [deviceTab, setDeviceTab] = useState<"deviceType" | "browser" | "os">(
     "deviceType"
   );
+
+  const BrowserLogo: React.FC<{ name?: string }> = ({ name }) => {
+  const n = (name || "").toLowerCase();
+
+  if (n.includes("chrome")) return <FaChrome className="text-blue-600" />;
+  if (n.includes("firefox")) return <FaFirefoxBrowser className="text-orange-500" />;
+  if (n.includes("safari")) return <FaSafari className="text-sky-500" />;
+  if (n.includes("edge")) return <FaEdge className="text-emerald-600" />;
+  if (n.includes("opera")) return <FaOpera className="text-red-500" />;
+  if (n.includes("ie") || n.includes("internet explorer"))
+    return <FaInternetExplorer className="text-sky-700" />;
+
+  // fallback icon
+  return <FaGlobeAmericas className="text-gray-500" />;
+};
   const [customFrom, setCustomFrom] = useState<string>("");
   const [customTo, setCustomTo] = useState<string>("");
   const [analytics, setAnalytics] = useState<AnalyticsSummary | null>(null);
@@ -299,7 +339,7 @@ const AdminDashboard: React.FC = () => {
     return () => observer.disconnect();
   }, [showFullSubs]);
 
-  // ---------- Fetch Blogs (FAST + GET ALL) ----------
+  // ---------- Fetch Blogs ----------
   useEffect(() => {
     const controller = new AbortController();
 
@@ -404,17 +444,12 @@ const AdminDashboard: React.FC = () => {
         if (!subRes.ok || !respRes.ok)
           throw new Error("Failed submissions/responses");
 
-        const [subData, respData] = await Promise.all([
-          subRes.json(),
-          respRes.json(),
-        ]);
+        const [subData, respData] = await Promise.all([subRes.json(), respRes.json()]);
 
         runIdle(() => {
           startTransition(() => {
             setSubmissions(subData ?? []);
-            setResponses(
-              Array.isArray(respData) ? (respData as number[]).slice(0, 5) : []
-            );
+            setResponses(Array.isArray(respData) ? (respData as number[]).slice(0, 5) : []);
             setSubsPage(1);
           });
         });
@@ -431,7 +466,6 @@ const AdminDashboard: React.FC = () => {
     return () => controller.abort();
   }, []);
 
-  // ✅ Precompute submissions date ONCE
   const submissionsWithDate = useMemo(
     () =>
       submissions.map((l) => ({
@@ -442,16 +476,8 @@ const AdminDashboard: React.FC = () => {
     [submissions]
   );
 
-  const blogDates = useMemo(
-    () => blogs.map((b) => b._d).filter((d): d is Date => !!d),
-    [blogs]
-  );
-
   const recentBlogs = useMemo(() => blogs.slice(0, 5), [blogs]);
-  const recentSubmissions = useMemo(
-    () => submissionsWithDate.slice(0, 5),
-    [submissionsWithDate]
-  );
+  const recentSubmissions = useMemo(() => submissionsWithDate.slice(0, 5), [submissionsWithDate]);
 
   const weeklyPerformanceData = useMemo(
     () =>
@@ -463,98 +489,13 @@ const AdminDashboard: React.FC = () => {
     [stats.dailyLeads, stats.dailyResponses]
   );
 
-  const { totalVisitorsTrend, totalBlogsTrend, totalSubmissionsTrend } =
-    useMemo(() => {
-      const now = new Date();
-      const last30Start = addDays(now, -30);
-      const prev30Start = addDays(now, -60);
-      const prev30End = last30Start;
-
-      const thisMonthStart = startOfMonth(now);
-      const nextMonthStart = addMonths(thisMonthStart, 1);
-      const lastMonthStart = addMonths(thisMonthStart, -1);
-
-      const totalVisitorsValueLocal = uniq(submissions, (l) => l.fromIp);
-
-      const last30Leads = submissionsWithDate.filter((l) =>
-        between(l._d, last30Start, now)
-      );
-      const prev30Leads = submissionsWithDate.filter((l) =>
-        between(l._d, prev30Start, prev30End)
-      );
-
-      const last30Unique = uniq(last30Leads, (l) => l.fromIp);
-      const prev30Unique = uniq(prev30Leads, (l) => l.fromIp);
-      const totalVisitorsTrendLocal = pctChange(last30Unique, prev30Unique);
-
-      const thisMonthLeads = submissionsWithDate.filter((l) =>
-        between(l._d, thisMonthStart, nextMonthStart)
-      );
-      const lastMonthLeads = submissionsWithDate.filter((l) =>
-        between(l._d, lastMonthStart, thisMonthStart)
-      );
-
-      const thisMonthVisitorsValue = uniq(thisMonthLeads, (l) => l.fromIp);
-      const lastMonthUnique = uniq(lastMonthLeads, (l) => l.fromIp);
-      const thisMonthVisitorsTrend = pctChange(
-        thisMonthVisitorsValue,
-        lastMonthUnique
-      );
-
-      const last30Blogs = blogDates.filter((d) => between(d, last30Start, now))
-        .length;
-      const prev30Blogs = blogDates.filter((d) =>
-        between(d, prev30Start, prev30End)
-      ).length;
-      const totalBlogsTrendLocal = pctChange(last30Blogs, prev30Blogs);
-
-      const submissionsLast30 = last30Leads.length;
-      const submissionsPrev30 = prev30Leads.length;
-      const totalSubmissionsTrendLocal = pctChange(
-        submissionsLast30,
-        submissionsPrev30
-      );
-
-      // keep returned vars same names
-      void totalVisitorsValueLocal;
-      void thisMonthVisitorsTrend;
-
-      return {
-        totalVisitorsTrend: totalVisitorsTrendLocal,
-        totalBlogsTrend: totalBlogsTrendLocal,
-        totalSubmissionsTrend: totalSubmissionsTrendLocal,
-      };
-    }, [submissions, submissionsWithDate, blogDates]);
-
-  const visitorDistribution = useMemo(() => {
-    const map = new Map<string, Set<string>>();
-    for (const l of submissions) {
-      const stateLabel =
-        (l.fromStateCode && l.fromStateCode.trim()) ||
-        (l.fromState && l.fromState.trim()) ||
-        "Unknown";
-      if (!map.has(stateLabel)) map.set(stateLabel, new Set());
-      if (l.fromIp) map.get(stateLabel)!.add(l.fromIp);
-    }
-    const rows = Array.from(map.entries()).map(([name, ips]) => ({
-      name,
-      count: ips.size,
-    }));
-    rows.sort((a, b) => b.count - a.count);
-    return rows.slice(0, 10);
-  }, [submissions]);
-
   const totalSubsPages = useMemo(
     () => Math.max(1, Math.ceil(submissions.length / SUBS_PAGE_SIZE)),
     [submissions.length]
   );
 
   const pagedSubmissions = useMemo(
-    () =>
-      submissionsWithDate.slice(
-        (subsPage - 1) * SUBS_PAGE_SIZE,
-        subsPage * SUBS_PAGE_SIZE
-      ),
+    () => submissionsWithDate.slice((subsPage - 1) * SUBS_PAGE_SIZE, subsPage * SUBS_PAGE_SIZE),
     [submissionsWithDate, subsPage]
   );
 
@@ -570,8 +511,7 @@ const AdminDashboard: React.FC = () => {
 
   // ---------- Blog actions ----------
   const handleDeleteClick = useCallback(async (id: number) => {
-    if (!window.confirm("Are you sure you want to delete this blog post?"))
-      return;
+    if (!window.confirm("Are you sure you want to delete this blog post?")) return;
     try {
       const resp = await fetch("/api/blogpost", {
         method: "DELETE",
@@ -632,7 +572,7 @@ const AdminDashboard: React.FC = () => {
     []
   );
 
-  // ---------- Analytics range + fetch (NEW) ----------
+  // ---------- Analytics range + fetch ----------
   const resolveRange = useCallback(() => {
     const now = new Date();
     if (rangePreset === "24h")
@@ -664,7 +604,6 @@ const AdminDashboard: React.FC = () => {
         });
         if (!res.ok) throw new Error("Failed to load analytics");
         const data = (await res.json()) as AnalyticsSummary;
-
         startTransition(() => setAnalytics(data));
       } catch (e) {
         if (isAbortError(e)) return;
@@ -679,9 +618,25 @@ const AdminDashboard: React.FC = () => {
     return () => controller.abort();
   }, [resolveRange, startTransition]);
 
+  // ✅ devices data memo
+  const deviceTypeRows = useMemo(() => analytics?.devices?.deviceType ?? [], [analytics]);
+  const osRows = useMemo(() => analytics?.devices?.os ?? [], [analytics]);
+  const browserRows = useMemo(() => analytics?.devices?.browser ?? [], [analytics]);
+
+  const deviceTypeTotal = useMemo(
+    () => deviceTypeRows.reduce((a, x) => a + (x.count || 0), 0),
+    [deviceTypeRows]
+  );
+  const osTotal = useMemo(() => osRows.reduce((a, x) => a + (x.count || 0), 0), [osRows]);
+
+  const deviceTypePie = useMemo(
+    () => deviceTypeRows.map((r) => ({ name: r.name || "Unknown", value: r.count || 0 })),
+    [deviceTypeRows]
+  );
+
   return (
     <div className="p-6 bg-gray-50 min-h-screen">
-      {/* ---------- NEW Analytics (replaces old 3 StatCards) ---------- */}
+      {/* ---------- NEW Analytics ---------- */}
       <section className="bg-white rounded-xl shadow-sm p-5 mb-8">
         <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
           <div>
@@ -738,22 +693,14 @@ const AdminDashboard: React.FC = () => {
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-5 mt-5">
           <StatCard
             title="Total Visitors"
-            value={
-              analyticsLoading
-                ? "…"
-                : numberFormatter.format(analytics?.kpis.visitors ?? 0)
-            }
+            value={analyticsLoading ? "…" : numberFormatter.format(analytics?.kpis.visitors ?? 0)}
             icon={<FaEye className="text-xl text-blue-500" />}
             color="bg-blue-100"
             loading={analyticsLoading || isPending}
           />
           <StatCard
             title="Page Views"
-            value={
-              analyticsLoading
-                ? "…"
-                : numberFormatter.format(analytics?.kpis.pageViews ?? 0)
-            }
+            value={analyticsLoading ? "…" : numberFormatter.format(analytics?.kpis.pageViews ?? 0)}
             icon={<FaRegChartBar className="text-xl text-indigo-500" />}
             color="bg-indigo-100"
             loading={analyticsLoading || isPending}
@@ -806,74 +753,269 @@ const AdminDashboard: React.FC = () => {
             <div className="text-gray-500 text-sm">No analytics data</div>
           ) : tab === "traffic" ? (
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-              <div className="bg-gray-50 rounded-xl p-4">
-                <h3 className="text-sm font-semibold text-gray-800 mb-3">
-                  Visitors over time
-                </h3>
+              {/* Visitors Chart */}
+              <div className="bg-gradient-to-br from-white to-blue-50 rounded-2xl p-5 border border-blue-100 shadow-sm">
+                <div className="flex justify-between items-center mb-4">
+                  <div>
+                    <h3 className="text-base font-semibold text-gray-800">
+                      Visitors Over Time
+                    </h3>
+                    <p className="text-xs text-gray-500 mt-1">Unique visitors trend</p>
+                  </div>
+                  <div className="w-10 h-10 rounded-full bg-blue-100 flex items-center justify-center">
+                    <FaEye className="text-blue-600 text-sm" />
+                  </div>
+                </div>
                 <div className="h-[260px]">
                   <ResponsiveContainer width="100%" height="100%">
-                    <ComposedChart data={analytics.series}>
-                      <CartesianGrid strokeDasharray="3 3" vertical={false} />
-                      <XAxis dataKey="t" tickLine={false} axisLine={false} />
-                      <YAxis allowDecimals={false} tickLine={false} axisLine={false} />
-                      <Tooltip />
+                    <ComposedChart
+                      data={analytics.series}
+                      margin={{ top: 10, right: 10, left: 0, bottom: 0 }}
+                    >
+                      <defs>
+                        <linearGradient
+                          id="visitorsGradient"
+                          x1="0"
+                          y1="0"
+                          x2="0"
+                          y2="1"
+                        >
+                          <stop offset="5%" stopColor="#6366f1" stopOpacity={0.3} />
+                          <stop offset="95%" stopColor="#6366f1" stopOpacity={0} />
+                        </linearGradient>
+                      </defs>
+                      <CartesianGrid
+                        strokeDasharray="3 3"
+                        vertical={false}
+                        stroke="#e5e7eb"
+                        strokeOpacity={0.5}
+                      />
+                      <XAxis
+                        dataKey="t"
+                        tickLine={false}
+                        axisLine={false}
+                        tick={{ fill: "#6b7280", fontSize: 11 }}
+                        tickFormatter={(value) => {
+                          if (bucket === "hour") return value.slice(11, 16);
+                          return value.slice(5, 10);
+                        }}
+                      />
+                      <YAxis
+                        allowDecimals={false}
+                        tickLine={false}
+                        axisLine={false}
+                        tick={{ fill: "#6b7280", fontSize: 11 }}
+                      />
+                      <Tooltip
+                        contentStyle={{
+                          borderRadius: "8px",
+                          border: "1px solid #e5e7eb",
+                          boxShadow: "0 4px 12px rgba(0,0,0,0.05)",
+                          fontSize: "12px",
+                        }}
+                        formatter={(value) => [value, "Visitors"]}
+                        labelFormatter={(label) => `Time: ${label}`}
+                      />
                       <Area
                         type="monotone"
                         dataKey="visitors"
-                        fill="#6366f1"
                         stroke="#6366f1"
-                        strokeWidth={2}
+                        strokeWidth={3}
+                        fillOpacity={1}
+                        fill="url(#visitorsGradient)"
+                        dot={{ stroke: "#6366f1", strokeWidth: 2, r: 3 }}
+                        activeDot={{ r: 6, strokeWidth: 2, stroke: "#fff" }}
                       />
                     </ComposedChart>
                   </ResponsiveContainer>
                 </div>
+                {analytics.series.length > 0 && (
+                  <div className="flex items-center gap-2 mt-4 pt-3 border-t border-blue-50">
+                    <div className="w-3 h-3 rounded-full bg-blue-500"></div>
+                    <span className="text-xs text-gray-600">
+                      Peak: {Math.max(...analytics.series.map((s) => s.visitors))} visitors
+                    </span>
+                  </div>
+                )}
               </div>
 
-              <div className="bg-gray-50 rounded-xl p-4">
-                <h3 className="text-sm font-semibold text-gray-800 mb-3">
-                  Page views over time
-                </h3>
+              {/* Page Views Chart */}
+              <div className="bg-gradient-to-br from-white to-emerald-50 rounded-2xl p-5 border border-emerald-100 shadow-sm">
+                <div className="flex justify-between items-center mb-4">
+                  <div>
+                    <h3 className="text-base font-semibold text-gray-800">
+                      Page Views Over Time
+                    </h3>
+                    <p className="text-xs text-gray-500 mt-1">Total page views trend</p>
+                  </div>
+                  <div className="w-10 h-10 rounded-full bg-emerald-100 flex items-center justify-center">
+                    <FaRegChartBar className="text-emerald-600 text-sm" />
+                  </div>
+                </div>
                 <div className="h-[260px]">
                   <ResponsiveContainer width="100%" height="100%">
-                    <ComposedChart data={analytics.series}>
-                      <CartesianGrid strokeDasharray="3 3" vertical={false} />
-                      <XAxis dataKey="t" tickLine={false} axisLine={false} />
-                      <YAxis allowDecimals={false} tickLine={false} axisLine={false} />
-                      <Tooltip />
-                      <Bar dataKey="pageViews" fill="#10b981" radius={[4, 4, 0, 0]} />
+                    <ComposedChart
+                      data={analytics.series}
+                      margin={{ top: 10, right: 10, left: 0, bottom: 0 }}
+                    >
+                      <defs>
+                        <linearGradient
+                          id="pageViewsGradient"
+                          x1="0"
+                          y1="0"
+                          x2="0"
+                          y2="1"
+                        >
+                          <stop offset="5%" stopColor="#10b981" stopOpacity={0.8} />
+                          <stop offset="95%" stopColor="#10b981" stopOpacity={0.2} />
+                        </linearGradient>
+                      </defs>
+                      <CartesianGrid
+                        strokeDasharray="3 3"
+                        vertical={false}
+                        stroke="#e5e7eb"
+                        strokeOpacity={0.5}
+                      />
+                      <XAxis
+                        dataKey="t"
+                        tickLine={false}
+                        axisLine={false}
+                        tick={{ fill: "#6b7280", fontSize: 11 }}
+                        tickFormatter={(value) => {
+                          if (bucket === "hour") return value.slice(11, 16);
+                          return value.slice(5, 10);
+                        }}
+                      />
+                      <YAxis
+                        allowDecimals={false}
+                        tickLine={false}
+                        axisLine={false}
+                        tick={{ fill: "#6b7280", fontSize: 11 }}
+                      />
+                      <Tooltip
+                        contentStyle={{
+                          borderRadius: "8px",
+                          border: "1px solid #e5e7eb",
+                          boxShadow: "0 4px 12px rgba(0,0,0,0.05)",
+                          fontSize: "12px",
+                        }}
+                        formatter={(value) => [value, "Page Views"]}
+                        labelFormatter={(label) => `Time: ${label}`}
+                      />
+                      <Bar
+                        dataKey="pageViews"
+                        fill="url(#pageViewsGradient)"
+                        radius={[6, 6, 0, 0]}
+                        barSize={bucket === "hour" ? 12 : 24}
+                      />
                     </ComposedChart>
                   </ResponsiveContainer>
                 </div>
+                {analytics.series.length > 0 && (
+                  <div className="flex items-center gap-2 mt-4 pt-3 border-t border-emerald-50">
+                    <div className="w-3 h-3 rounded-full bg-emerald-500"></div>
+                    <span className="text-xs text-gray-600">
+                      Total:{" "}
+                      {analytics.series.reduce((acc, s) => acc + s.pageViews, 0)} page views
+                    </span>
+                  </div>
+                )}
               </div>
 
-              <div className="lg:col-span-2 bg-white rounded-xl border border-gray-200 overflow-hidden">
-                <div className="p-4 border-b border-gray-200">
-                  <h3 className="text-sm font-semibold text-gray-800">Top pages</h3>
+              {/* Top Pages Table */}
+              <div className="lg:col-span-2 bg-gradient-to-br from-white to-gray-50 rounded-2xl border border-gray-200 overflow-hidden shadow-sm">
+                <div className="p-4 border-b border-gray-200 bg-gradient-to-r from-gray-50 to-white">
+                  <div className="flex justify-between items-center">
+                    <h3 className="text-base font-semibold text-gray-800">
+                      Top Performing Pages
+                    </h3>
+                    <span className="text-xs text-gray-500">Sorted by views</span>
+                  </div>
                 </div>
                 <div className="overflow-x-auto">
                   <table className="w-full text-sm">
-                    <thead className="bg-gray-50 text-xs uppercase text-gray-500">
+                    <thead className="bg-gray-50/50 text-xs uppercase text-gray-500">
                       <tr>
-                        <th className="px-4 py-3 text-left">Path</th>
-                        <th className="px-4 py-3 text-left">Views</th>
-                        <th className="px-4 py-3 text-left">Avg Active Time</th>
+                        <th className="px-6 py-4 text-left font-medium">Path</th>
+                        <th className="px-6 py-4 text-left font-medium">Views</th>
+                        <th className="px-6 py-4 text-left font-medium">Avg Active Time</th>
+                        <th className="px-6 py-4 text-left font-medium">Engagement</th>
                       </tr>
                     </thead>
-                    <tbody className="divide-y divide-gray-200">
+                    <tbody className="divide-y divide-gray-200/60">
                       {(analytics.topPages ?? []).length ? (
-                        analytics.topPages.map((p) => (
-                          <tr key={p.path}>
-                            <td className="px-4 py-3">{p.path}</td>
-                            <td className="px-4 py-3">
-                              {numberFormatter.format(p.views)}
+                        analytics.topPages.map((p, index) => (
+                          <tr
+                            key={p.path}
+                            className="hover:bg-gray-50/50 transition-colors group"
+                          >
+                            <td className="px-6 py-4">
+                              <div className="flex items-center gap-3">
+                                <div className="w-8 h-8 rounded-lg bg-indigo-100 text-indigo-600 flex items-center justify-center text-xs font-bold">
+                                  {index + 1}
+                                </div>
+                                <span className="font-medium text-gray-900 truncate max-w-xs">
+                                  {p.path}
+                                </span>
+                              </div>
                             </td>
-                            <td className="px-4 py-3">{fmtSec(p.avgActiveTimeSec)}</td>
+                            <td className="px-6 py-4">
+                              <div className="flex items-center gap-2">
+                                <span className="font-semibold text-gray-900">
+                                  {numberFormatter.format(p.views)}
+                                </span>
+                                <div className="w-24 bg-gray-200 rounded-full h-2">
+                                  <div
+                                    className="bg-emerald-500 h-2 rounded-full"
+                                    style={{
+                                      width: `${Math.min(
+                                        100,
+                                        (p.views / (analytics.topPages[0]?.views || 1)) * 100
+                                      )}%`,
+                                    }}
+                                  ></div>
+                                </div>
+                              </div>
+                            </td>
+                            <td className="px-6 py-4">
+                              <div className="inline-flex items-center gap-2 px-3 py-1.5 bg-blue-50 text-blue-700 rounded-full">
+                                <div className="w-2 h-2 rounded-full bg-blue-500 animate-pulse"></div>
+                                <span className="text-sm font-medium">
+                                  {fmtSec(p.avgActiveTimeSec)}
+                                </span>
+                              </div>
+                            </td>
+                            <td className="px-6 py-4">
+                              <div className="flex items-center gap-2">
+                                <div
+                                  className={`w-3 h-3 rounded-full ${
+                                    p.avgActiveTimeSec > 120
+                                      ? "bg-green-500"
+                                      : p.avgActiveTimeSec > 60
+                                      ? "bg-yellow-500"
+                                      : "bg-red-500"
+                                  }`}
+                                ></div>
+                                <span className="text-sm text-gray-600">
+                                  {p.avgActiveTimeSec > 120
+                                    ? "High"
+                                    : p.avgActiveTimeSec > 60
+                                    ? "Medium"
+                                    : "Low"}
+                                </span>
+                              </div>
+                            </td>
                           </tr>
                         ))
                       ) : (
                         <tr>
-                          <td colSpan={3} className="px-4 py-6 text-center text-gray-500">
-                            No page data
+                          <td colSpan={4} className="px-6 py-8 text-center text-gray-500">
+                            <div className="flex flex-col items-center gap-2">
+                              <div className="w-12 h-12 rounded-full bg-gray-100 flex items-center justify-center">
+                                <FaFileAlt className="text-gray-400" />
+                              </div>
+                              <p>No page data available</p>
+                            </div>
                           </td>
                         </tr>
                       )}
@@ -883,120 +1025,385 @@ const AdminDashboard: React.FC = () => {
               </div>
             </div>
           ) : tab === "sources" ? (
-            <div className="bg-gray-50 rounded-xl p-4">
-              <h3 className="text-sm font-semibold text-gray-800 mb-3">
-                Top sources (referrer / utm_source)
-              </h3>
+            <div className="bg-gradient-to-br from-white to-purple-50 rounded-2xl p-5 border border-purple-100 shadow-sm">
+              <div className="flex justify-between items-center mb-4">
+                <div>
+                  <h3 className="text-base font-semibold text-gray-800">Traffic Sources</h3>
+                  <p className="text-xs text-gray-500 mt-1">
+                    Where your visitors are coming from
+                  </p>
+                </div>
+                <div className="w-10 h-10 rounded-full bg-purple-100 flex items-center justify-center">
+                  <FaGlobeAmericas className="text-purple-600 text-sm" />
+                </div>
+              </div>
               <div className="h-[320px]">
                 {analytics.sources?.length ? (
                   <ResponsiveContainer width="100%" height="100%">
-                    <BarChart data={analytics.sources}>
-                      <CartesianGrid strokeDasharray="3 3" vertical={false} />
-                      <XAxis dataKey="name" tickLine={false} axisLine={false} />
-                      <YAxis allowDecimals={false} tickLine={false} axisLine={false} />
-                      <Tooltip />
-                      <Bar dataKey="count" fill="#6366f1" radius={[4, 4, 0, 0]} />
+                    <BarChart
+                      data={analytics.sources}
+                      margin={{ top: 20, right: 20, left: 0, bottom: 10 }}
+                      barCategoryGap="20%"
+                    >
+                      <defs>
+                        <linearGradient id="sourceGradient" x1="0" y1="0" x2="0" y2="1">
+                          <stop offset="5%" stopColor="#8b5cf6" stopOpacity={0.8} />
+                          <stop offset="95%" stopColor="#8b5cf6" stopOpacity={0.3} />
+                        </linearGradient>
+                      </defs>
+                      <CartesianGrid
+                        strokeDasharray="3 3"
+                        vertical={false}
+                        stroke="#e5e7eb"
+                        strokeOpacity={0.5}
+                      />
+                      <XAxis
+                        dataKey="name"
+                        tickLine={false}
+                        axisLine={false}
+                        tick={{ fill: "#6b7280", fontSize: 11 }}
+                        angle={-45}
+                        textAnchor="end"
+                        height={60}
+                      />
+                      <YAxis
+                        allowDecimals={false}
+                        tickLine={false}
+                        axisLine={false}
+                        tick={{ fill: "#6b7280", fontSize: 11 }}
+                      />
+                      <Tooltip
+                        contentStyle={{
+                          borderRadius: "8px",
+                          border: "1px solid #e5e7eb",
+                          boxShadow: "0 4px 12px rgba(0,0,0,0.05)",
+                          fontSize: "12px",
+                        }}
+                        formatter={(value) => [value, "Visits"]}
+                      />
+                      <Bar
+                        dataKey="count"
+                        fill="url(#sourceGradient)"
+                        radius={[6, 6, 0, 0]}
+                        barSize={30}
+                        animationDuration={1500}
+                      />
                     </BarChart>
                   </ResponsiveContainer>
                 ) : (
                   <div className="h-full flex items-center justify-center text-gray-500">
-                    No source data
+                    <div className="text-center">
+                      <div className="w-16 h-16 rounded-full bg-gray-100 flex items-center justify-center mx-auto mb-3">
+                        <FaGlobeAmericas className="text-gray-400 text-xl" />
+                      </div>
+                      <p>No source data available</p>
+                    </div>
                   </div>
                 )}
               </div>
             </div>
           ) : tab === "geo" ? (
-            <div className="bg-gray-50 rounded-xl p-4">
-              <h3 className="text-sm font-semibold text-gray-800 mb-2">Geo</h3>
-              {!analytics.geo?.enabled ? (
-                <div className="text-sm text-gray-500 p-6 bg-white rounded-lg border border-gray-200">
-                  Geo is not configured yet. (Enable server-side IP → country/city mapping)
-                </div>
-              ) : (
-                <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-                  <div className="bg-white rounded-lg border border-gray-200 overflow-hidden">
-                    <div className="p-3 border-b border-gray-200 text-sm font-semibold">
-                      Top Countries
-                    </div>
-                    <table className="w-full text-sm">
-                      <tbody className="divide-y divide-gray-200">
-                        {(analytics.geo.countries ?? []).map((c) => (
-                          <tr key={c.name}>
-                            <td className="px-4 py-2">{c.name}</td>
-                            <td className="px-4 py-2 text-right">
-                              {numberFormatter.format(c.count)}
-                            </td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
+            <div className="space-y-6">
+              <div className="bg-gradient-to-br from-white to-blue-50 rounded-2xl p-5 border border-blue-100 shadow-sm">
+                <div className="flex justify-between items-center mb-4">
+                  <h3 className="text-base font-semibold text-gray-800">
+                    Geographic Distribution
+                  </h3>
+                  <div className="w-10 h-10 rounded-full bg-blue-100 flex items-center justify-center">
+                    <FaGlobeAmericas className="text-blue-600 text-sm" />
                   </div>
+                </div>
+                {!analytics.geo?.enabled ? (
+                  <div className="p-6 bg-white rounded-xl border border-gray-200 text-center">
+                    <div className="w-16 h-16 rounded-full bg-gray-100 flex items-center justify-center mx-auto mb-3">
+                      <FaGlobeAmericas className="text-gray-400 text-xl" />
+                    </div>
+                    <p className="text-gray-600 mb-2">Geo analytics not configured</p>
+                    <p className="text-sm text-gray-500">
+                      Enable server-side IP → country/city mapping to see geographic data
+                    </p>
+                  </div>
+                ) : (
+                  <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                    {/* Countries */}
+                    <div className="bg-white rounded-xl border border-gray-200 overflow-hidden shadow-sm">
+                      <div className="p-4 border-b border-gray-200 bg-gradient-to-r from-blue-50/50 to-white">
+                        <h4 className="text-sm font-semibold text-gray-800 flex items-center gap-2">
+                          <div className="w-2 h-2 rounded-full bg-blue-500"></div>
+                          Top Countries
+                        </h4>
+                      </div>
+                      <div className="p-2">
+                        {(analytics.geo.countries ?? []).map((c, index) => (
+                          <div
+                            key={c.name}
+                            className="flex items-center justify-between p-3 hover:bg-blue-50/30 rounded-lg transition-colors group"
+                          >
+                            <div className="flex items-center gap-3">
+                              <div className="w-8 h-8 rounded-lg bg-blue-100 text-blue-600 flex items-center justify-center text-xs font-bold">
+                                {index + 1}
+                              </div>
+                              <span className="font-medium text-gray-900">{c.name}</span>
+                            </div>
+                            <div className="flex items-center gap-3">
+                              <span className="text-sm font-semibold text-gray-900">
+                                {numberFormatter.format(c.count)}
+                              </span>
+                              <div className="w-32 bg-gray-200 rounded-full h-2">
+                                <div
+                                  className="bg-blue-500 h-2 rounded-full transition-all duration-500"
+                                  style={{
+                                    width: `${Math.min(
+                                      100,
+                                      (c.count / (analytics.geo.countries[0]?.count || 1)) * 100
+                                    )}%`,
+                                  }}
+                                ></div>
+                              </div>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
 
-                  <div className="bg-white rounded-lg border border-gray-200 overflow-hidden">
-                    <div className="p-3 border-b border-gray-200 text-sm font-semibold">
-                      Top Cities
-                    </div>
-                    <table className="w-full text-sm">
-                      <tbody className="divide-y divide-gray-200">
-                        {(analytics.geo.cities ?? []).map((c) => (
-                          <tr key={c.name}>
-                            <td className="px-4 py-2">{c.name}</td>
-                            <td className="px-4 py-2 text-right">
-                              {numberFormatter.format(c.count)}
-                            </td>
-                          </tr>
+                    {/* Cities */}
+                    <div className="bg-white rounded-xl border border-gray-200 overflow-hidden shadow-sm">
+                      <div className="p-4 border-b border-gray-200 bg-gradient-to-r from-emerald-50/50 to-white">
+                        <h4 className="text-sm font-semibold text-gray-800 flex items-center gap-2">
+                          <div className="w-2 h-2 rounded-full bg-emerald-500"></div>
+                          Top Cities
+                        </h4>
+                      </div>
+                      <div className="p-2">
+                        {(analytics.geo.cities ?? []).map((c, index) => (
+                          <div
+                            key={c.name}
+                            className="flex items-center justify-between p-3 hover:bg-emerald-50/30 rounded-lg transition-colors group"
+                          >
+                            <div className="flex items-center gap-3">
+                              <div className="w-8 h-8 rounded-lg bg-emerald-100 text-emerald-600 flex items-center justify-center text-xs font-bold">
+                                {index + 1}
+                              </div>
+                              <span className="font-medium text-gray-900">{c.name}</span>
+                            </div>
+                            <div className="flex items-center gap-3">
+                              <span className="text-sm font-semibold text-gray-900">
+                                {numberFormatter.format(c.count)}
+                              </span>
+                              <div className="w-32 bg-gray-200 rounded-full h-2">
+                                <div
+                                  className="bg-emerald-500 h-2 rounded-full transition-all duration-500"
+                                  style={{
+                                    width: `${Math.min(
+                                      100,
+                                      (c.count / (analytics.geo.cities[0]?.count || 1)) * 100
+                                    )}%`,
+                                  }}
+                                ></div>
+                              </div>
+                            </div>
+                          </div>
                         ))}
-                      </tbody>
-                    </table>
+                      </div>
+                    </div>
                   </div>
-                </div>
-              )}
+                )}
+              </div>
             </div>
           ) : (
-            <div>
-              <div className="flex gap-2 mb-4">
-                {[
-                  { key: "deviceType", label: "Device" },
-                  { key: "browser", label: "Browser" },
-                  { key: "os", label: "OS" },
-                ].map((t) => (
-                  <button
-                    key={t.key}
-                    onClick={() => setDeviceTab(t.key as any)}
-                    className={`px-3 py-2 text-sm rounded-lg border ${
-                      deviceTab === t.key
-                        ? "bg-white border-gray-300 text-gray-900"
-                        : "bg-gray-50 border-gray-200 text-gray-600 hover:bg-white"
-                    }`}
-                  >
-                    {t.label}
-                  </button>
-                ))}
-              </div>
+            // ✅✅✅ DEVICES TAB UPDATED LIKE SCREENSHOT ✅✅✅
+            <div className="space-y-6">
+    {/* Sub Tabs */}
+    <div className="flex flex-wrap gap-2">
+      {[
+        { key: "deviceType", label: "Device Type" },
+        { key: "browser", label: "Browser" },
+        { key: "os", label: "Operating System" },
+      ].map((t) => (
+        <button
+          key={t.key}
+          onClick={() => setDeviceTab(t.key as any)}
+          className={`px-4 py-2 text-sm font-medium rounded-lg border transition ${
+            deviceTab === t.key
+              ? "bg-white border-gray-300 text-gray-900 shadow-sm"
+              : "bg-gray-50 border-gray-200 text-gray-600 hover:bg-white"
+          }`}
+        >
+          {t.label}
+        </button>
+      ))}
+    </div>
 
-              <div className="bg-gray-50 rounded-xl p-4">
-                <div className="h-[320px]">
-                  <ResponsiveContainer width="100%" height="100%">
-                    <BarChart data={(analytics.devices as any)?.[deviceTab] ?? []}>
-                      <CartesianGrid strokeDasharray="3 3" vertical={false} />
-                      <XAxis dataKey="name" tickLine={false} axisLine={false} />
-                      <YAxis allowDecimals={false} tickLine={false} axisLine={false} />
-                      <Tooltip />
-                      <Bar dataKey="count" fill="#6366f1" radius={[4, 4, 0, 0]} />
-                    </BarChart>
-                  </ResponsiveContainer>
-                </div>
-              </div>
+    {deviceTab === "deviceType" ? (
+      <div className="grid grid-cols-1 lg:grid-cols-1 gap-6">
+        {/* Left: Device Types Pie */}
+        <div className="bg-white rounded-xl border border-gray-200 p-5 shadow-sm">
+          <div className="mb-1">
+            <h3 className="text-sm font-semibold text-gray-900">Device Types</h3>
+            <p className="text-xs text-gray-500">Distribution of device categories</p>
+          </div>
+
+          {deviceTypeTotal > 0 ? (
+            <div className="h-[280px] mt-3">
+              <ResponsiveContainer width="100%" height="100%">
+                <PieChart>
+                  <Pie
+                    data={deviceTypePie}
+                    dataKey="value"
+                    nameKey="name"
+                    cx="50%"
+                    cy="45%"
+                    innerRadius={55}
+                    outerRadius={90}
+                    paddingAngle={2}
+                    labelLine={false}
+                    label={({ name, value }) =>
+                      `${name}: ${pct(value as number, deviceTypeTotal)}%`
+                    }
+                  >
+                    {deviceTypePie.map((_, i) => (
+                      <Cell key={i} fill={PIE_COLORS[i % PIE_COLORS.length]} />
+                    ))}
+                  </Pie>
+
+                  <Tooltip
+                    formatter={(value: any, name: any) => [
+                      `${numberFormatter.format(value)} (${pct(value, deviceTypeTotal)}%)`,
+                      name,
+                    ]}
+                  />
+                  <Legend verticalAlign="bottom" height={26} />
+                </PieChart>
+              </ResponsiveContainer>
+            </div>
+          ) : (
+            <div className="h-[260px] flex items-center justify-center text-gray-500">
+              No device data
             </div>
           )}
         </div>
-      </section>
 
-      {/* ======= আপনার আগের সব সেকশন এখান থেকে unchanged ======= */}
+        {/* Right: Quick summary cards */}
+        {/* <div className="bg-white rounded-xl border border-gray-200 p-5 shadow-sm">
+          <h3 className="text-sm font-semibold text-gray-900 mb-3">Top Devices</h3>
+          {deviceTypeRows?.length ? (
+            <div className="space-y-3">
+              {deviceTypeRows.slice(0, 6).map((d, i) => (
+                <div key={`${d.name}-${i}`} className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <div
+                      className="w-2.5 h-2.5 rounded-full"
+                      style={{ backgroundColor: PIE_COLORS[i % PIE_COLORS.length] }}
+                    />
+                    <span className="text-sm text-gray-800 font-medium">{d.name}</span>
+                  </div>
+                  <div className="text-sm text-gray-700">
+                    {numberFormatter.format(d.count)}{" "}
+                    <span className="text-xs text-gray-500">
+                      ({pct(d.count, deviceTypeTotal)}%)
+                    </span>
+                  </div>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <div className="text-gray-500 text-sm">No data</div>
+          )}
+        </div> */}
+      </div>
+    ) : deviceTab === "browser" ? (
+      <div className="bg-white rounded-xl border border-gray-200 p-5 shadow-sm">
+        <div className="mb-1">
+          <h3 className="text-sm font-semibold text-gray-900">Browser Usage</h3>
+          <p className="text-xs text-gray-500">Top browsers with icons + percentage</p>
+        </div>
+
+        {browserRows?.length ? (
+          <div className="mt-4 space-y-4">
+            {(() => {
+              const total = browserRows.reduce((a, x) => a + (x.count || 0), 0) || 0;
+
+              return browserRows.slice(0, 12).map((b, i) => {
+                const p = pct(b.count, total);
+                return (
+                  <div key={`${b.name}-${i}`} className="space-y-1">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-3">
+                        <div className="w-9 h-9 rounded-lg bg-gray-50 border border-gray-200 flex items-center justify-center">
+                          <BrowserLogo name={b.name} />
+                        </div>
+                        <div>
+                          <div className="text-sm font-semibold text-gray-900">{b.name}</div>
+                          <div className="text-xs text-gray-500">
+                            {numberFormatter.format(b.count)} users
+                          </div>
+                        </div>
+                      </div>
+
+                      <div className="text-sm text-gray-700 font-medium">
+                        {p.toFixed(1)}%
+                      </div>
+                    </div>
+
+                    <div className="h-2 w-full rounded-full bg-gray-100 overflow-hidden">
+                      <div
+                        className="h-2 rounded-full bg-indigo-600"
+                        style={{ width: `${Math.min(100, p)}%` }}
+                      />
+                    </div>
+                  </div>
+                );
+              });
+            })()}
+          </div>
+        ) : (
+          <div className="h-[260px] flex items-center justify-center text-gray-500">
+            No browser data
+          </div>
+        )}
+      </div>
+    ) : (
+      <div className="bg-white rounded-xl border border-gray-200 p-5 shadow-sm">
+        <div className="mb-1">
+          <h3 className="text-sm font-semibold text-gray-900">Operating Systems</h3>
+          <p className="text-xs text-gray-500">Usage distribution</p>
+        </div>
+
+        {osTotal > 0 ? (
+          <div className="mt-4 space-y-4">
+            {osRows.slice(0, 12).map((r, i) => {
+              const p = pct(r.count, osTotal);
+              return (
+                <div key={`${r.name}-${i}`} className="space-y-1">
+                  <div className="flex items-center justify-between text-xs">
+                    <span className="font-medium text-gray-900">{r.name}</span>
+                    <span className="text-gray-500">{p.toFixed(1)}%</span>
+                  </div>
+
+                  <div className="h-2 w-full rounded-full bg-gray-100 overflow-hidden">
+                    <div
+                      className="h-2 rounded-full bg-blue-600"
+                      style={{ width: `${Math.min(100, p)}%` }}
+                    />
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        ) : (
+          <div className="h-[260px] flex items-center justify-center text-gray-500">
+            No OS data
+          </div>
+        )}
+      </div>
+    )}
+  </div>
+)}
+        </div>
+      </section>
 
       {/* Charts */}
       <section className="grid grid-cols-1 lg:grid-cols-1 gap-6 mb-8">
-        {/* Weekly Performance */}
         <div className="bg-white p-6 rounded-xl shadow-sm">
           <div className="flex justify-between items-center mb-6">
             <h2 className="text-xl font-semibold text-gray-800 flex items-center gap-2">
@@ -1026,8 +1433,6 @@ const AdminDashboard: React.FC = () => {
             </ResponsiveContainer>
           )}
         </div>
-
-     
       </section>
 
       {/* TWO SMALL TABLES */}
@@ -1035,9 +1440,7 @@ const AdminDashboard: React.FC = () => {
         {/* Recent Lead Submissions */}
         <div className="bg-white rounded-xl shadow-sm overflow-hidden">
           <div className="p-5 border-b border-gray-200 flex justify-between items-center">
-            <h2 className="text-lg font-semibold text-gray-800">
-              Recent Lead Submissions
-            </h2>
+            <h2 className="text-lg font-semibold text-gray-800">Recent Lead Submissions</h2>
             <span className="text-xs bg-blue-100 text-blue-800 py-1 px-2 rounded-full">
               {recentSubmissions.length}
             </span>
@@ -1061,20 +1464,13 @@ const AdminDashboard: React.FC = () => {
                         <td className="px-5 py-4 whitespace-nowrap">
                           {lead.firstName} {lead.lastName}
                         </td>
-                        <td className="px-5 py-4 whitespace-nowrap">
-                          {lead.email || "—"}
-                        </td>
-                        <td className="px-5 py-4 whitespace-nowrap">
-                          {lead._createdFmt}
-                        </td>
+                        <td className="px-5 py-4 whitespace-nowrap">{lead.email || "—"}</td>
+                        <td className="px-5 py-4 whitespace-nowrap">{lead._createdFmt}</td>
                       </tr>
                     ))
                   ) : (
                     <tr>
-                      <td
-                        colSpan={3}
-                        className="px-5 py-8 text-center text-gray-500"
-                      >
+                      <td colSpan={3} className="px-5 py-8 text-center text-gray-500">
                         No recent submissions
                       </td>
                     </tr>
@@ -1088,9 +1484,7 @@ const AdminDashboard: React.FC = () => {
         {/* Recent Lead Responses */}
         <div className="bg-white rounded-xl shadow-sm overflow-hidden">
           <div className="p-5 border-b border-gray-200 flex justify-between items-center">
-            <h2 className="text-lg font-semibold text-gray-800">
-              Recent Lead Responses
-            </h2>
+            <h2 className="text-lg font-semibold text-gray-800">Recent Lead Responses</h2>
             <span className="text-xs bg-green-100 text-green-800 py-1 px-2 rounded-full">
               {responses.length}
             </span>
@@ -1122,10 +1516,7 @@ const AdminDashboard: React.FC = () => {
                     ))
                   ) : (
                     <tr>
-                      <td
-                        colSpan={3}
-                        className="px-5 py-8 text-center text-gray-500"
-                      >
+                      <td colSpan={3} className="px-5 py-8 text-center text-gray-500">
                         No recent responses
                       </td>
                     </tr>
@@ -1156,9 +1547,7 @@ const AdminDashboard: React.FC = () => {
           ) : subsError ? (
             <div className="p-6 text-center text-red-500">{subsError}</div>
           ) : submissions.length === 0 ? (
-            <div className="p-6 text-center text-gray-500">
-              No submissions found.
-            </div>
+            <div className="p-6 text-center text-gray-500">No submissions found.</div>
           ) : (
             <>
               <div className="overflow-x-auto">
@@ -1190,48 +1579,20 @@ const AdminDashboard: React.FC = () => {
                         <td className="px-4 py-3 whitespace-nowrap">
                           {fmt(lead.firstName)} {fmt(lead.lastName)}
                         </td>
-                        <td className="px-4 py-3 whitespace-nowrap">
-                          {fmt(lead.email)}
-                        </td>
-                        <td className="px-4 py-3 whitespace-nowrap">
-                          {fmt(lead.phone)}
-                        </td>
-                        <td className="px-4 py-3 whitespace-nowrap">
-                          {fmt(lead.fromState)}
-                        </td>
-                        <td className="px-4 py-3 whitespace-nowrap">
-                          {fmt(lead.fromStateCode)}
-                        </td>
-                        <td className="px-4 py-3 whitespace-nowrap">
-                          {fmt(lead.fromCity)}
-                        </td>
-                        <td className="px-4 py-3 whitespace-nowrap">
-                          {fmt(lead.fromZip)}
-                        </td>
-                        <td className="px-4 py-3 whitespace-nowrap">
-                          {fmt(lead.toState)}
-                        </td>
-                        <td className="px-4 py-3 whitespace-nowrap">
-                          {fmt(lead.toStateCode)}
-                        </td>
-                        <td className="px-4 py-3 whitespace-nowrap">
-                          {fmt(lead.toCity)}
-                        </td>
-                        <td className="px-4 py-3 whitespace-nowrap">
-                          {fmt(lead.toZip)}
-                        </td>
-                        <td className="px-4 py-3 whitespace-nowrap">
-                          {fmtDate(lead.moveDate)}
-                        </td>
-                        <td className="px-4 py-3 whitespace-nowrap">
-                          {fmt(lead.moveSize)}
-                        </td>
-                        <td className="px-4 py-3 whitespace-nowrap">
-                          {fmt(lead.fromIp)}
-                        </td>
-                        <td className="px-4 py-3 whitespace-nowrap">
-                          {lead._createdFmt}
-                        </td>
+                        <td className="px-4 py-3 whitespace-nowrap">{fmt(lead.email)}</td>
+                        <td className="px-4 py-3 whitespace-nowrap">{fmt(lead.phone)}</td>
+                        <td className="px-4 py-3 whitespace-nowrap">{fmt(lead.fromState)}</td>
+                        <td className="px-4 py-3 whitespace-nowrap">{fmt(lead.fromStateCode)}</td>
+                        <td className="px-4 py-3 whitespace-nowrap">{fmt(lead.fromCity)}</td>
+                        <td className="px-4 py-3 whitespace-nowrap">{fmt(lead.fromZip)}</td>
+                        <td className="px-4 py-3 whitespace-nowrap">{fmt(lead.toState)}</td>
+                        <td className="px-4 py-3 whitespace-nowrap">{fmt(lead.toStateCode)}</td>
+                        <td className="px-4 py-3 whitespace-nowrap">{fmt(lead.toCity)}</td>
+                        <td className="px-4 py-3 whitespace-nowrap">{fmt(lead.toZip)}</td>
+                        <td className="px-4 py-3 whitespace-nowrap">{fmtDate(lead.moveDate)}</td>
+                        <td className="px-4 py-3 whitespace-nowrap">{fmt(lead.moveSize)}</td>
+                        <td className="px-4 py-3 whitespace-nowrap">{fmt(lead.fromIp)}</td>
+                        <td className="px-4 py-3 whitespace-nowrap">{lead._createdFmt}</td>
                       </tr>
                     ))}
                   </tbody>
@@ -1285,9 +1646,7 @@ const AdminDashboard: React.FC = () => {
       <section className="mb-8">
         <div className="bg-white rounded-xl shadow-sm overflow-hidden">
           <div className="p-5 border-b border-gray-200 flex justify-between items-center">
-            <h2 className="text-lg font-semibold text-gray-800">
-              Recent Blog Posts
-            </h2>
+            <h2 className="text-lg font-semibold text-gray-800">Recent Blog Posts</h2>
             <button className="px-4 py-2 bg-indigo-600 text-white rounded-lg text-sm font-medium hover:bg-indigo-700 transition-colors">
               Add New Post
             </button>
@@ -1320,8 +1679,7 @@ const AdminDashboard: React.FC = () => {
                       <td className="px-5 py-4 whitespace-nowrap">
                         <span
                           className={`px-2 py-1 rounded-full text-xs font-medium capitalize ${
-                            blog.post_status === "publish" ||
-                            blog.post_status === "published"
+                            blog.post_status === "publish" || blog.post_status === "published"
                               ? "bg-green-100 text-green-800"
                               : blog.post_status === "pending"
                               ? "bg-amber-100 text-amber-800"
@@ -1463,11 +1821,7 @@ const StatCard: React.FC<StatCardProps> = React.memo(function StatCard({
         <div className="flex-1">
           <p className="text-sm font-medium text-gray-600">{title}</p>
           <div className="mt-1">
-            {loading ? (
-              <SkeletonBox className="h-7 w-20" />
-            ) : (
-              <h3 className="text-2xl font-bold text-gray-800">{value}</h3>
-            )}
+            {loading ? <SkeletonBox className="h-7 w-20" /> : <h3 className="text-2xl font-bold text-gray-800">{value}</h3>}
           </div>
         </div>
         <div className={`p-3 rounded-lg ${color}`}>{icon}</div>
