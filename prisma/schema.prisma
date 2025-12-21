@@ -27,7 +27,7 @@ model User {
   createdAt     DateTime  @default(now())
   updatedAt     DateTime  @updatedAt
   accounts      Account[]
-
+  analyticsEvents AnalyticsEvent[]
   @@map("users")
 }
 
@@ -158,4 +158,69 @@ model VisitLog {
 
   @@unique([slug, ip, dayKey]) // ✅ same IP counts once per day
   @@index([slug, dayKey])
+}
+enum AnalyticsEventName {
+  session_start
+  page_view
+  heartbeat
+}
+
+model AnalyticsEvent {
+  id        BigInt              @id @default(autoincrement())
+  ts        DateTime            @default(now())
+  event     AnalyticsEventName
+
+  // Identity
+  visitorId String              @map("visitor_id") // GA client_id like
+  sessionId String              @map("session_id") // GA session
+  userId    String?             @map("user_id")    // optional (logged in)
+  user      User?               @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  // Page
+  path      String              @default("/") @map("path")
+  title     String?             @map("title")
+  referrer  String?             @map("referrer")
+
+  // UTM
+  utmSource   String?           @map("utm_source")
+  utmMedium   String?           @map("utm_medium")
+  utmCampaign String?           @map("utm_campaign")
+
+  // Device
+  deviceType String?            @map("device_type") // mobile/desktop/tablet
+  browser    String?            @map("browser")
+  os         String?            @map("os")
+  screen     String?            @map("screen")
+  lang       String?            @map("lang")
+
+  // Geo (optional)
+  country    String?            @map("country")
+  city       String?            @map("city")
+
+  // Engagement (heartbeat only)
+  activeSeconds Int             @default(0) @map("active_seconds")
+
+  @@index([ts])
+  @@index([event, ts])
+  @@index([visitorId, ts])
+  @@index([sessionId, ts])
+  @@index([path, ts])
+  @@index([utmSource, ts])
+  @@index([deviceType, ts])
+  @@map("analytics_events")
+}
+model GeoIpCache {
+  id        Int      @id @default(autoincrement())
+  ip        String   @unique
+  country   String?
+  city      String?
+  region    String?
+  lat       Float?
+  lon       Float?
+  isp       String?
+  updatedAt DateTime @updatedAt
+  createdAt DateTime @default(now())
+
+  @@index([updatedAt])
+  @@map("geo_ip_cache")
 }

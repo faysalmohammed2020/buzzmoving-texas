@@ -4,6 +4,9 @@ import "./globals.css";
 import { Providers } from "./providers";
 import Script from "next/script";
 
+// ✅ add this line
+import AnalyticsTracker from "@/components/AnalyticsTracker";
+
 const geistSans = Geist({ variable: "--font-geist-sans", subsets: ["latin"] });
 const geistMono = Geist_Mono({
   variable: "--font-geist-mono",
@@ -46,6 +49,9 @@ export default function RootLayout({
       <body
         className={`${geistSans.variable} ${geistMono.variable} antialiased`}
       >
+        {/* ✅ GA-like custom analytics tracker */}
+        <AnalyticsTracker />
+
         <Providers>{children}</Providers>
       </body>
     </html>

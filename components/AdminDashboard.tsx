@@ -85,6 +85,32 @@ type StatsState = {
   dailyResponses: DailyCount[];
 };
 
+// ---------- Analytics (NEW) ----------
+type AnalyticsBucket = "hour" | "day";
+type RangePreset = "24h" | "7d" | "30d" | "custom";
+
+type AnalyticsSummary = {
+  kpis: {
+    visitors: number;
+    pageViews: number;
+    activeTimeSec: number;
+    avgActiveTimeSec: number;
+  };
+  series: { t: string; visitors: number; pageViews: number }[];
+  topPages: { path: string; views: number; avgActiveTimeSec: number }[];
+  sources: { name: string; count: number }[];
+  devices: {
+    deviceType: { name: string; count: number }[];
+    browser: { name: string; count: number }[];
+    os: { name: string; count: number }[];
+  };
+  geo: {
+    enabled: boolean;
+    countries: { name: string; count: number }[];
+    cities: { name: string; count: number }[];
+  };
+};
+
 // ---------- helpers ----------
 function uniq<T>(arr: T[], keyFn: (x: T) => string | number | null | undefined) {
   const set = new Set<string | number>();
@@ -167,6 +193,21 @@ const TableSkeleton: React.FC<{ rows?: number; cols?: number }> = React.memo(
 );
 TableSkeleton.displayName = "TableSkeleton";
 
+// ---------- Analytics helpers (NEW) ----------
+const fmtSec = (sec: number) => {
+  if (!sec || sec <= 0) return "0s";
+  const m = Math.floor(sec / 60);
+  const s = Math.floor(sec % 60);
+  if (m <= 0) return `${s}s`;
+  const h = Math.floor(m / 60);
+  const mm = m % 60;
+  if (h <= 0) return `${m}m ${s}s`;
+  return `${h}h ${mm}m`;
+};
+function toISO(d: Date) {
+  return d.toISOString();
+}
+
 const AdminDashboard: React.FC = () => {
   const [blogs, setBlogs] = useState<Blog[]>([]);
   const [totalBlogs, setTotalBlogs] = useState<number>(0);
@@ -197,28 +238,42 @@ const AdminDashboard: React.FC = () => {
   const fullSubsRef = useRef<HTMLDivElement | null>(null);
   const [totalVisitorsValue, setTotalVisitorsValue] = useState(0);
 
-useEffect(() => {
-  const controller = new AbortController();
+  // ---------- Analytics state (NEW) ----------
+  const [analyticsLoading, setAnalyticsLoading] = useState(true);
+  const [analyticsError, setAnalyticsError] = useState<string | null>(null);
+  const [rangePreset, setRangePreset] = useState<RangePreset>("7d");
+  const [bucket, setBucket] = useState<AnalyticsBucket>("day");
+  const [tab, setTab] = useState<"traffic" | "sources" | "geo" | "devices">(
+    "traffic"
+  );
+  const [deviceTab, setDeviceTab] = useState<"deviceType" | "browser" | "os">(
+    "deviceType"
+  );
+  const [customFrom, setCustomFrom] = useState<string>("");
+  const [customTo, setCustomTo] = useState<string>("");
+  const [analytics, setAnalytics] = useState<AnalyticsSummary | null>(null);
 
-  const loadVisitors = async () => {
-    try {
-      const res = await fetch("/api/visits", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ slug: "home" }),
-        cache: "no-store",
-        signal: controller.signal,
-      });
+  useEffect(() => {
+    const controller = new AbortController();
 
-      const json: { count?: number } = await res.json();
-      setTotalVisitorsValue(json.count || 0);
-    } catch {}
-  };
+    const loadVisitors = async () => {
+      try {
+        const res = await fetch("/api/visits", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ slug: "home" }),
+          cache: "no-store",
+          signal: controller.signal,
+        });
 
-  loadVisitors();
-  return () => controller.abort();
-}, []);
+        const json: { count?: number } = await res.json();
+        setTotalVisitorsValue(json.count || 0);
+      } catch {}
+    };
 
+    loadVisitors();
+    return () => controller.abort();
+  }, []);
 
   useEffect(() => {
     if (showFullSubs) return;
@@ -263,10 +318,9 @@ useEffect(() => {
           ? payload
           : payload.data || payload.items || [];
 
-        const total =
-          Array.isArray(payload)
-            ? items.length
-            : payload.meta?.total || payload.total || items.length;
+        const total = Array.isArray(payload)
+          ? items.length
+          : payload.meta?.total || payload.total || items.length;
 
         const transformed: Blog[] = items.map((item) => {
           const createdAt = item.createdAt ?? item.post_date ?? null;
@@ -409,71 +463,68 @@ useEffect(() => {
     [stats.dailyLeads, stats.dailyResponses]
   );
 
-  const {
-    totalVisitorsTrend,
-    totalBlogsTrend,
-    totalSubmissionsTrend,
-  } = useMemo(() => {
-    const now = new Date();
-    const last30Start = addDays(now, -30);
-    const prev30Start = addDays(now, -60);
-    const prev30End = last30Start;
+  const { totalVisitorsTrend, totalBlogsTrend, totalSubmissionsTrend } =
+    useMemo(() => {
+      const now = new Date();
+      const last30Start = addDays(now, -30);
+      const prev30Start = addDays(now, -60);
+      const prev30End = last30Start;
 
-    const thisMonthStart = startOfMonth(now);
-    const nextMonthStart = addMonths(thisMonthStart, 1);
-    const lastMonthStart = addMonths(thisMonthStart, -1);
+      const thisMonthStart = startOfMonth(now);
+      const nextMonthStart = addMonths(thisMonthStart, 1);
+      const lastMonthStart = addMonths(thisMonthStart, -1);
 
-    const totalVisitorsValue = uniq(submissions, (l) => l.fromIp);
+      const totalVisitorsValueLocal = uniq(submissions, (l) => l.fromIp);
 
-    const last30Leads = submissionsWithDate.filter((l) =>
-      between(l._d, last30Start, now)
-    );
-    const prev30Leads = submissionsWithDate.filter((l) =>
-      between(l._d, prev30Start, prev30End)
-    );
+      const last30Leads = submissionsWithDate.filter((l) =>
+        between(l._d, last30Start, now)
+      );
+      const prev30Leads = submissionsWithDate.filter((l) =>
+        between(l._d, prev30Start, prev30End)
+      );
 
-    const last30Unique = uniq(last30Leads, (l) => l.fromIp);
-    const prev30Unique = uniq(prev30Leads, (l) => l.fromIp);
-    const totalVisitorsTrend = pctChange(last30Unique, prev30Unique);
+      const last30Unique = uniq(last30Leads, (l) => l.fromIp);
+      const prev30Unique = uniq(prev30Leads, (l) => l.fromIp);
+      const totalVisitorsTrendLocal = pctChange(last30Unique, prev30Unique);
 
-    const thisMonthLeads = submissionsWithDate.filter((l) =>
-      between(l._d, thisMonthStart, nextMonthStart)
-    );
-    const lastMonthLeads = submissionsWithDate.filter((l) =>
-      between(l._d, lastMonthStart, thisMonthStart)
-    );
+      const thisMonthLeads = submissionsWithDate.filter((l) =>
+        between(l._d, thisMonthStart, nextMonthStart)
+      );
+      const lastMonthLeads = submissionsWithDate.filter((l) =>
+        between(l._d, lastMonthStart, thisMonthStart)
+      );
 
-    const thisMonthVisitorsValue = uniq(thisMonthLeads, (l) => l.fromIp);
-    const lastMonthUnique = uniq(lastMonthLeads, (l) => l.fromIp);
-    const thisMonthVisitorsTrend = pctChange(
-      thisMonthVisitorsValue,
-      lastMonthUnique
-    );
+      const thisMonthVisitorsValue = uniq(thisMonthLeads, (l) => l.fromIp);
+      const lastMonthUnique = uniq(lastMonthLeads, (l) => l.fromIp);
+      const thisMonthVisitorsTrend = pctChange(
+        thisMonthVisitorsValue,
+        lastMonthUnique
+      );
 
-    const last30Blogs = blogDates.filter((d) =>
-      between(d, last30Start, now)
-    ).length;
-    const prev30Blogs = blogDates.filter((d) =>
-      between(d, prev30Start, prev30End)
-    ).length;
-    const totalBlogsTrend = pctChange(last30Blogs, prev30Blogs);
+      const last30Blogs = blogDates.filter((d) => between(d, last30Start, now))
+        .length;
+      const prev30Blogs = blogDates.filter((d) =>
+        between(d, prev30Start, prev30End)
+      ).length;
+      const totalBlogsTrendLocal = pctChange(last30Blogs, prev30Blogs);
 
-    const submissionsLast30 = last30Leads.length;
-    const submissionsPrev30 = prev30Leads.length;
-    const totalSubmissionsTrend = pctChange(
-      submissionsLast30,
-      submissionsPrev30
-    );
+      const submissionsLast30 = last30Leads.length;
+      const submissionsPrev30 = prev30Leads.length;
+      const totalSubmissionsTrendLocal = pctChange(
+        submissionsLast30,
+        submissionsPrev30
+      );
 
-    return {
-      totalVisitorsValue,
-      totalVisitorsTrend,
-      thisMonthVisitorsValue,
-      thisMonthVisitorsTrend,
-      totalBlogsTrend,
-      totalSubmissionsTrend,
-    };
-  }, [submissions, submissionsWithDate, blogDates]);
+      // keep returned vars same names
+      void totalVisitorsValueLocal;
+      void thisMonthVisitorsTrend;
+
+      return {
+        totalVisitorsTrend: totalVisitorsTrendLocal,
+        totalBlogsTrend: totalBlogsTrendLocal,
+        totalSubmissionsTrend: totalSubmissionsTrendLocal,
+      };
+    }, [submissions, submissionsWithDate, blogDates]);
 
   const visitorDistribution = useMemo(() => {
     const map = new Map<string, Set<string>>();
@@ -562,9 +613,7 @@ useEffect(() => {
 
       startTransition(() => {
         setBlogs((prev) =>
-          prev.map((b) =>
-            b.id === updatedBlog.id ? { ...b, ...updatedBlog } : b
-          )
+          prev.map((b) => (b.id === updatedBlog.id ? { ...b, ...updatedBlog } : b))
         );
         setIsEditModalVisible(false);
         setEditBlogData(null);
@@ -575,8 +624,7 @@ useEffect(() => {
   }, []);
 
   const fmt = useCallback(
-    (v: unknown) =>
-      v === null || v === undefined || v === "" ? "—" : String(v),
+    (v: unknown) => (v === null || v === undefined || v === "" ? "—" : String(v)),
     []
   );
   const fmtDate = useCallback(
@@ -584,50 +632,376 @@ useEffect(() => {
     []
   );
 
+  // ---------- Analytics range + fetch (NEW) ----------
+  const resolveRange = useCallback(() => {
+    const now = new Date();
+    if (rangePreset === "24h")
+      return { from: addDays(now, -1), to: now, bucket: "hour" as AnalyticsBucket };
+    if (rangePreset === "7d") return { from: addDays(now, -7), to: now, bucket };
+    if (rangePreset === "30d") return { from: addDays(now, -30), to: now, bucket };
+    const f = customFrom ? new Date(customFrom) : addDays(now, -7);
+    const t = customTo ? new Date(customTo) : now;
+    return { from: f, to: t, bucket };
+  }, [rangePreset, bucket, customFrom, customTo]);
+
+  useEffect(() => {
+    const controller = new AbortController();
+
+    const loadAnalytics = async () => {
+      setAnalyticsLoading(true);
+      setAnalyticsError(null);
+      try {
+        const { from, to, bucket: resolvedBucket } = resolveRange();
+        const qs = new URLSearchParams({
+          from: toISO(from),
+          to: toISO(to),
+          bucket: resolvedBucket,
+        });
+
+        const res = await fetch(`/api/admin/analytics/summary?${qs.toString()}`, {
+          cache: "no-store",
+          signal: controller.signal,
+        });
+        if (!res.ok) throw new Error("Failed to load analytics");
+        const data = (await res.json()) as AnalyticsSummary;
+
+        startTransition(() => setAnalytics(data));
+      } catch (e) {
+        if (isAbortError(e)) return;
+        console.error(e);
+        setAnalyticsError("Failed to load analytics.");
+      } finally {
+        setAnalyticsLoading(false);
+      }
+    };
+
+    loadAnalytics();
+    return () => controller.abort();
+  }, [resolveRange, startTransition]);
+
   return (
     <div className="p-6 bg-gray-50 min-h-screen">
-      {/* Analytics Cards */}
-      <section className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5 mb-8">
-        <StatCard
-          title="Total Visitors"
-          value={numberFormatter.format(totalVisitorsValue)}
-          trend={totalVisitorsTrend}
-          icon={<FaEye className="text-xl text-blue-500" />}
-          color="bg-blue-100"
-          loading={false}
-        />
+      {/* ---------- NEW Analytics (replaces old 3 StatCards) ---------- */}
+      <section className="bg-white rounded-xl shadow-sm p-5 mb-8">
+        <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
+          <div>
+            <h2 className="text-xl font-semibold text-gray-800">Website Analytics</h2>
+            <p className="text-sm text-gray-500">
+              Visitors, page views, active time, sources, geo & devices
+            </p>
+          </div>
 
-        <StatCard
-          title="Total Blogs"
-          value={isLoadingBlogs ? "…" : totalBlogs}
-          trend={totalBlogsTrend}
-          icon={<FaBlog className="text-xl text-green-500" />}
-          color="bg-green-100"
-          loading={isLoadingBlogs || isPending}
-        />
-        <StatCard
-          title="Total Submissions"
-          value={totalLeads}
-          trend={totalSubmissionsTrend}
-          icon={<FaFileAlt className="text-xl text-amber-500" />}
-          color="bg-amber-100"
-          loading={statsLoading}
-        />
+          <div className="flex flex-wrap gap-2 items-center">
+            <select
+              value={rangePreset}
+              onChange={(e) => setRangePreset(e.target.value as RangePreset)}
+              className="text-sm border border-gray-300 rounded-lg px-3 py-2 bg-white"
+            >
+              <option value="24h">Last 24h</option>
+              <option value="7d">Last 7 days</option>
+              <option value="30d">Last 30d</option>
+              <option value="custom">Custom</option>
+            </select>
+
+            {rangePreset === "custom" && (
+              <div className="flex gap-2 items-center">
+                <input
+                  type="date"
+                  value={customFrom}
+                  onChange={(e) => setCustomFrom(e.target.value)}
+                  className="text-sm border border-gray-300 rounded-lg px-3 py-2"
+                />
+                <span className="text-gray-400 text-sm">to</span>
+                <input
+                  type="date"
+                  value={customTo}
+                  onChange={(e) => setCustomTo(e.target.value)}
+                  className="text-sm border border-gray-300 rounded-lg px-3 py-2"
+                />
+              </div>
+            )}
+
+            <select
+              value={bucket}
+              onChange={(e) => setBucket(e.target.value as AnalyticsBucket)}
+              className="text-sm border border-gray-300 rounded-lg px-3 py-2 bg-white"
+              disabled={rangePreset === "24h"}
+              title={rangePreset === "24h" ? "24h uses hourly buckets" : ""}
+            >
+              <option value="hour">Hourly</option>
+              <option value="day">Daily</option>
+            </select>
+          </div>
+        </div>
+
+        {/* KPI Cards */}
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-5 mt-5">
+          <StatCard
+            title="Total Visitors"
+            value={
+              analyticsLoading
+                ? "…"
+                : numberFormatter.format(analytics?.kpis.visitors ?? 0)
+            }
+            icon={<FaEye className="text-xl text-blue-500" />}
+            color="bg-blue-100"
+            loading={analyticsLoading || isPending}
+          />
+          <StatCard
+            title="Page Views"
+            value={
+              analyticsLoading
+                ? "…"
+                : numberFormatter.format(analytics?.kpis.pageViews ?? 0)
+            }
+            icon={<FaRegChartBar className="text-xl text-indigo-500" />}
+            color="bg-indigo-100"
+            loading={analyticsLoading || isPending}
+          />
+          <StatCard
+            title="Total Active Time"
+            value={analyticsLoading ? "…" : fmtSec(analytics?.kpis.activeTimeSec ?? 0)}
+            icon={<FaFileAlt className="text-xl text-amber-500" />}
+            color="bg-amber-100"
+            loading={analyticsLoading || isPending}
+          />
+          <StatCard
+            title="Avg Active Time"
+            value={analyticsLoading ? "…" : fmtSec(analytics?.kpis.avgActiveTimeSec ?? 0)}
+            icon={<FaGlobeAmericas className="text-xl text-green-500" />}
+            color="bg-green-100"
+            loading={analyticsLoading || isPending}
+          />
+        </div>
+
+        {analyticsError && <div className="mt-4 text-sm text-red-600">{analyticsError}</div>}
+
+        {/* Tabs */}
+        <div className="flex flex-wrap gap-2 mt-6 border-b border-gray-200">
+          {[
+            { key: "traffic", label: "Traffic" },
+            { key: "sources", label: "Sources" },
+            { key: "geo", label: "Geo" },
+            { key: "devices", label: "Devices" },
+          ].map((t) => (
+            <button
+              key={t.key}
+              onClick={() => setTab(t.key as any)}
+              className={`px-4 py-2 text-sm font-medium rounded-t-lg ${
+                tab === t.key
+                  ? "bg-gray-50 text-gray-900 border border-gray-200 border-b-0"
+                  : "text-gray-500 hover:text-gray-800"
+              }`}
+            >
+              {t.label}
+            </button>
+          ))}
+        </div>
+
+        {/* Tab content */}
+        <div className="pt-5">
+          {analyticsLoading ? (
+            <SkeletonBox className="h-[320px] w-full" />
+          ) : !analytics ? (
+            <div className="text-gray-500 text-sm">No analytics data</div>
+          ) : tab === "traffic" ? (
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+              <div className="bg-gray-50 rounded-xl p-4">
+                <h3 className="text-sm font-semibold text-gray-800 mb-3">
+                  Visitors over time
+                </h3>
+                <div className="h-[260px]">
+                  <ResponsiveContainer width="100%" height="100%">
+                    <ComposedChart data={analytics.series}>
+                      <CartesianGrid strokeDasharray="3 3" vertical={false} />
+                      <XAxis dataKey="t" tickLine={false} axisLine={false} />
+                      <YAxis allowDecimals={false} tickLine={false} axisLine={false} />
+                      <Tooltip />
+                      <Area
+                        type="monotone"
+                        dataKey="visitors"
+                        fill="#6366f1"
+                        stroke="#6366f1"
+                        strokeWidth={2}
+                      />
+                    </ComposedChart>
+                  </ResponsiveContainer>
+                </div>
+              </div>
+
+              <div className="bg-gray-50 rounded-xl p-4">
+                <h3 className="text-sm font-semibold text-gray-800 mb-3">
+                  Page views over time
+                </h3>
+                <div className="h-[260px]">
+                  <ResponsiveContainer width="100%" height="100%">
+                    <ComposedChart data={analytics.series}>
+                      <CartesianGrid strokeDasharray="3 3" vertical={false} />
+                      <XAxis dataKey="t" tickLine={false} axisLine={false} />
+                      <YAxis allowDecimals={false} tickLine={false} axisLine={false} />
+                      <Tooltip />
+                      <Bar dataKey="pageViews" fill="#10b981" radius={[4, 4, 0, 0]} />
+                    </ComposedChart>
+                  </ResponsiveContainer>
+                </div>
+              </div>
+
+              <div className="lg:col-span-2 bg-white rounded-xl border border-gray-200 overflow-hidden">
+                <div className="p-4 border-b border-gray-200">
+                  <h3 className="text-sm font-semibold text-gray-800">Top pages</h3>
+                </div>
+                <div className="overflow-x-auto">
+                  <table className="w-full text-sm">
+                    <thead className="bg-gray-50 text-xs uppercase text-gray-500">
+                      <tr>
+                        <th className="px-4 py-3 text-left">Path</th>
+                        <th className="px-4 py-3 text-left">Views</th>
+                        <th className="px-4 py-3 text-left">Avg Active Time</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-gray-200">
+                      {(analytics.topPages ?? []).length ? (
+                        analytics.topPages.map((p) => (
+                          <tr key={p.path}>
+                            <td className="px-4 py-3">{p.path}</td>
+                            <td className="px-4 py-3">
+                              {numberFormatter.format(p.views)}
+                            </td>
+                            <td className="px-4 py-3">{fmtSec(p.avgActiveTimeSec)}</td>
+                          </tr>
+                        ))
+                      ) : (
+                        <tr>
+                          <td colSpan={3} className="px-4 py-6 text-center text-gray-500">
+                            No page data
+                          </td>
+                        </tr>
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </div>
+          ) : tab === "sources" ? (
+            <div className="bg-gray-50 rounded-xl p-4">
+              <h3 className="text-sm font-semibold text-gray-800 mb-3">
+                Top sources (referrer / utm_source)
+              </h3>
+              <div className="h-[320px]">
+                {analytics.sources?.length ? (
+                  <ResponsiveContainer width="100%" height="100%">
+                    <BarChart data={analytics.sources}>
+                      <CartesianGrid strokeDasharray="3 3" vertical={false} />
+                      <XAxis dataKey="name" tickLine={false} axisLine={false} />
+                      <YAxis allowDecimals={false} tickLine={false} axisLine={false} />
+                      <Tooltip />
+                      <Bar dataKey="count" fill="#6366f1" radius={[4, 4, 0, 0]} />
+                    </BarChart>
+                  </ResponsiveContainer>
+                ) : (
+                  <div className="h-full flex items-center justify-center text-gray-500">
+                    No source data
+                  </div>
+                )}
+              </div>
+            </div>
+          ) : tab === "geo" ? (
+            <div className="bg-gray-50 rounded-xl p-4">
+              <h3 className="text-sm font-semibold text-gray-800 mb-2">Geo</h3>
+              {!analytics.geo?.enabled ? (
+                <div className="text-sm text-gray-500 p-6 bg-white rounded-lg border border-gray-200">
+                  Geo is not configured yet. (Enable server-side IP → country/city mapping)
+                </div>
+              ) : (
+                <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                  <div className="bg-white rounded-lg border border-gray-200 overflow-hidden">
+                    <div className="p-3 border-b border-gray-200 text-sm font-semibold">
+                      Top Countries
+                    </div>
+                    <table className="w-full text-sm">
+                      <tbody className="divide-y divide-gray-200">
+                        {(analytics.geo.countries ?? []).map((c) => (
+                          <tr key={c.name}>
+                            <td className="px-4 py-2">{c.name}</td>
+                            <td className="px-4 py-2 text-right">
+                              {numberFormatter.format(c.count)}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+
+                  <div className="bg-white rounded-lg border border-gray-200 overflow-hidden">
+                    <div className="p-3 border-b border-gray-200 text-sm font-semibold">
+                      Top Cities
+                    </div>
+                    <table className="w-full text-sm">
+                      <tbody className="divide-y divide-gray-200">
+                        {(analytics.geo.cities ?? []).map((c) => (
+                          <tr key={c.name}>
+                            <td className="px-4 py-2">{c.name}</td>
+                            <td className="px-4 py-2 text-right">
+                              {numberFormatter.format(c.count)}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              )}
+            </div>
+          ) : (
+            <div>
+              <div className="flex gap-2 mb-4">
+                {[
+                  { key: "deviceType", label: "Device" },
+                  { key: "browser", label: "Browser" },
+                  { key: "os", label: "OS" },
+                ].map((t) => (
+                  <button
+                    key={t.key}
+                    onClick={() => setDeviceTab(t.key as any)}
+                    className={`px-3 py-2 text-sm rounded-lg border ${
+                      deviceTab === t.key
+                        ? "bg-white border-gray-300 text-gray-900"
+                        : "bg-gray-50 border-gray-200 text-gray-600 hover:bg-white"
+                    }`}
+                  >
+                    {t.label}
+                  </button>
+                ))}
+              </div>
+
+              <div className="bg-gray-50 rounded-xl p-4">
+                <div className="h-[320px]">
+                  <ResponsiveContainer width="100%" height="100%">
+                    <BarChart data={(analytics.devices as any)?.[deviceTab] ?? []}>
+                      <CartesianGrid strokeDasharray="3 3" vertical={false} />
+                      <XAxis dataKey="name" tickLine={false} axisLine={false} />
+                      <YAxis allowDecimals={false} tickLine={false} axisLine={false} />
+                      <Tooltip />
+                      <Bar dataKey="count" fill="#6366f1" radius={[4, 4, 0, 0]} />
+                    </BarChart>
+                  </ResponsiveContainer>
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
       </section>
 
+      {/* ======= আপনার আগের সব সেকশন এখান থেকে unchanged ======= */}
+
       {/* Charts */}
-      <section className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8">
+      <section className="grid grid-cols-1 lg:grid-cols-1 gap-6 mb-8">
         {/* Weekly Performance */}
         <div className="bg-white p-6 rounded-xl shadow-sm">
           <div className="flex justify-between items-center mb-6">
             <h2 className="text-xl font-semibold text-gray-800 flex items-center gap-2">
               <FaRegChartBar className="text-indigo-500" /> Weekly Performance
             </h2>
-            {/* <select className="text-sm border border-gray-300 rounded-lg px-3 py-2 bg-white">
-              <option>Last 7 days</option>
-              <option>Last 30 days</option>
-              <option>Last 90 days</option>
-            </select> */}
           </div>
 
           {statsLoading ? (
@@ -653,35 +1027,7 @@ useEffect(() => {
           )}
         </div>
 
-        {/* Visitor Distribution */}
-        <div className="bg-white rounded-xl shadow-sm p-5">
-          <h3 className="text-lg font-semibold text-gray-800 mb-4 flex items-center gap-2">
-            <FaGlobeAmericas className="text-indigo-500" /> Visitor Distribution
-          </h3>
-          <div className="h-[300px]">
-            {subsLoading ? (
-              <SkeletonBox className="h-full w-full" />
-            ) : subsError ? (
-              <div className="h-full flex items-center justify-center text-red-500">
-                {subsError}
-              </div>
-            ) : visitorDistribution.length === 0 ? (
-              <div className="h-full flex items-center justify-center text-gray-500">
-                No data
-              </div>
-            ) : (
-              <ResponsiveContainer width="100%" height="100%">
-                <BarChart data={visitorDistribution} layout="vertical">
-                  <CartesianGrid strokeDasharray="3 3" horizontal={false} />
-                  <XAxis type="number" allowDecimals={false} />
-                  <YAxis dataKey="name" type="category" width={100} />
-                  <Tooltip />
-                  <Bar dataKey="count" fill="#6366f1" radius={[0, 4, 4, 0]} />
-                </BarChart>
-              </ResponsiveContainer>
-            )}
-          </div>
-        </div>
+     
       </section>
 
       {/* TWO SMALL TABLES */}
@@ -765,9 +1111,7 @@ useEffect(() => {
                   {responses.length > 0 ? (
                     responses.map((leadId: number, index: number) => (
                       <tr key={index}>
-                        <td className="px-5 py-4 whitespace-nowrap">
-                          #{leadId}
-                        </td>
+                        <td className="px-5 py-4 whitespace-nowrap">#{leadId}</td>
                         <td className="px-5 py-4 whitespace-nowrap">
                           <span className="px-2 py-1 bg-green-100 text-green-800 text-xs rounded-full">
                             Responded
@@ -842,9 +1186,7 @@ useEffect(() => {
                   <tbody className="divide-y divide-gray-200">
                     {pagedSubmissions.map((lead) => (
                       <tr key={lead.id}>
-                        <td className="px-4 py-3 whitespace-nowrap">
-                          #{lead.id}
-                        </td>
+                        <td className="px-4 py-3 whitespace-nowrap">#{lead.id}</td>
                         <td className="px-4 py-3 whitespace-nowrap">
                           {fmt(lead.firstName)} {fmt(lead.lastName)}
                         </td>
@@ -1030,9 +1372,7 @@ useEffect(() => {
             onClick={(e) => e.stopPropagation()}
           >
             <div className="flex justify-between items-center p-5 border-b border-gray-200">
-              <h2 className="text-xl font-semibold text-gray-800">
-                Edit Blog Post
-              </h2>
+              <h2 className="text-xl font-semibold text-gray-800">Edit Blog Post</h2>
               <button
                 onClick={handleEditClose}
                 className="text-gray-400 hover:text-gray-600 transition-colors"

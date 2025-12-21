@@ -1,0 +1,253 @@
+"use client";
+
+import { useEffect, useRef } from "react";
+import { usePathname, useSearchParams } from "next/navigation";
+
+type CollectPayload = {
+  event: "session_start" | "page_view" | "heartbeat";
+  visitorId: string;
+  sessionId: string;
+  userId?: string | null;
+  ts: number;
+  page: { path: string; title?: string; referrer?: string | null };
+  utm?: { source?: string | null; medium?: string | null; campaign?: string | null };
+  device?: { type?: string | null; os?: string | null; browser?: string | null; screen?: string | null; lang?: string | null };
+  engagement?: { activeSeconds?: number };
+};
+
+const VISITOR_KEY = "boe_vid";
+const SESSION_KEY = "boe_sid";
+const LAST_ACTIVITY_KEY = "boe_last_activity";
+const SESSION_TIMEOUT_MS = 30 * 60 * 1000; // 30 min GA-like
+const HEARTBEAT_SEC = 10;
+
+function uuid(): string {
+  // modern uuid if available
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const c = (globalThis as any)?.crypto;
+  if (c?.randomUUID) return c.randomUUID();
+  return "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(/[xy]/g, (ch) => {
+    const r = (Math.random() * 16) | 0;
+    const v = ch === "x" ? r : (r & 0x3) | 0x8;
+    return v.toString(16);
+  });
+}
+
+function getOrCreateVisitorId() {
+  try {
+    const existing = localStorage.getItem(VISITOR_KEY);
+    if (existing) return existing;
+    const id = uuid();
+    localStorage.setItem(VISITOR_KEY, id);
+    return id;
+  } catch {
+    return uuid();
+  }
+}
+
+function getOrCreateSessionId(forceNew = false) {
+  try {
+    if (forceNew) {
+      const sid = uuid();
+      sessionStorage.setItem(SESSION_KEY, sid);
+      return sid;
+    }
+    const existing = sessionStorage.getItem(SESSION_KEY);
+    if (existing) return existing;
+    const sid = uuid();
+    sessionStorage.setItem(SESSION_KEY, sid);
+    return sid;
+  } catch {
+    return uuid();
+  }
+}
+
+function getUTM(searchParams: URLSearchParams) {
+  const source = searchParams.get("utm_source");
+  const medium = searchParams.get("utm_medium");
+  const campaign = searchParams.get("utm_campaign");
+  return { source, medium, campaign };
+}
+
+function getDeviceInfo() {
+  const ua = navigator.userAgent || "";
+  const lang = navigator.language || "";
+  const screen = `${window.screen?.width ?? 0}x${window.screen?.height ?? 0}`;
+
+  // very lightweight detection (good enough; can improve later)
+  const isMobile = /Mobi|Android|iPhone|iPad|iPod/i.test(ua);
+  const deviceType = isMobile ? "mobile" : "desktop";
+
+  let os = "Unknown";
+  if (/Windows/i.test(ua)) os = "Windows";
+  else if (/Mac OS X/i.test(ua)) os = "macOS";
+  else if (/Android/i.test(ua)) os = "Android";
+  else if (/iPhone|iPad|iPod/i.test(ua)) os = "iOS";
+  else if (/Linux/i.test(ua)) os = "Linux";
+
+  let browser = "Unknown";
+  if (/Edg/i.test(ua)) browser = "Edge";
+  else if (/Chrome/i.test(ua) && !/Edg/i.test(ua)) browser = "Chrome";
+  else if (/Safari/i.test(ua) && !/Chrome/i.test(ua)) browser = "Safari";
+  else if (/Firefox/i.test(ua)) browser = "Firefox";
+
+  return { type: deviceType, os, browser, screen, lang };
+}
+
+async function send(payload: CollectPayload) {
+  try {
+    await fetch("/api/analytics/collect", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+      keepalive: true,
+      cache: "no-store",
+    });
+  } catch {
+    // ignore
+  }
+}
+
+export default function AnalyticsTracker({ userId }: { userId?: string | null }) {
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
+  const visitorIdRef = useRef<string | null>(null);
+  const sessionIdRef = useRef<string | null>(null);
+  const engagedSecondsRef = useRef<number>(0);
+  const lastHeartbeatAtRef = useRef<number>(0);
+  const isActiveRef = useRef<boolean>(true);
+
+  // init ids + session rules
+  useEffect(() => {
+    const vid = getOrCreateVisitorId();
+    visitorIdRef.current = vid;
+
+    // session timeout check
+    const now = Date.now();
+    const last = Number(sessionStorage.getItem(LAST_ACTIVITY_KEY) || "0");
+    const expired = !last || now - last > SESSION_TIMEOUT_MS;
+
+    const sid = getOrCreateSessionId(expired);
+    sessionIdRef.current = sid;
+
+    sessionStorage.setItem(LAST_ACTIVITY_KEY, String(now));
+
+    if (expired) {
+      void send({
+        event: "session_start",
+        visitorId: vid,
+        sessionId: sid,
+        userId: userId ?? null,
+        ts: now,
+        page: { path: pathname || "/", title: document.title, referrer: document.referrer || null },
+        utm: getUTM(new URLSearchParams(window.location.search)),
+        device: getDeviceInfo(),
+      });
+    }
+  }, [userId]);
+
+  // page_view on route change
+  useEffect(() => {
+    const vid = visitorIdRef.current || getOrCreateVisitorId();
+    const sid = sessionIdRef.current || getOrCreateSessionId(false);
+    const now = Date.now();
+
+    sessionStorage.setItem(LAST_ACTIVITY_KEY, String(now));
+
+    void send({
+      event: "page_view",
+      visitorId: vid,
+      sessionId: sid,
+      userId: userId ?? null,
+      ts: now,
+      page: {
+        path: (pathname || "/") + (searchParams?.toString() ? `?${searchParams.toString()}` : ""),
+        title: document.title,
+        referrer: document.referrer || null,
+      },
+      utm: getUTM(new URLSearchParams(window.location.search)),
+      device: getDeviceInfo(),
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pathname, searchParams, userId]);
+
+  // activity listeners
+  useEffect(() => {
+    const markActive = () => {
+      isActiveRef.current = true;
+      sessionStorage.setItem(LAST_ACTIVITY_KEY, String(Date.now()));
+    };
+    const markInactive = () => {
+      // allow a small grace; heartbeat loop will handle
+      isActiveRef.current = false;
+    };
+
+    const events = ["mousemove", "mousedown", "keydown", "scroll", "touchstart"];
+    events.forEach((e) => window.addEventListener(e, markActive, { passive: true }));
+
+    document.addEventListener("visibilitychange", () => {
+      if (document.hidden) markInactive();
+      else markActive();
+    });
+
+    return () => {
+      events.forEach((e) => window.removeEventListener(e, markActive));
+    };
+  }, []);
+
+  // heartbeat loop (GA-like engagement)
+  useEffect(() => {
+    const tick = () => {
+      const now = Date.now();
+      const last = Number(sessionStorage.getItem(LAST_ACTIVITY_KEY) || "0");
+      const expired = !last || now - last > SESSION_TIMEOUT_MS;
+
+      if (expired) {
+        // new session
+        const sid = getOrCreateSessionId(true);
+        sessionIdRef.current = sid;
+        sessionStorage.setItem(LAST_ACTIVITY_KEY, String(now));
+
+        void send({
+          event: "session_start",
+          visitorId: visitorIdRef.current || getOrCreateVisitorId(),
+          sessionId: sid,
+          userId: userId ?? null,
+          ts: now,
+          page: { path: pathname || "/", title: document.title, referrer: document.referrer || null },
+          utm: getUTM(new URLSearchParams(window.location.search)),
+          device: getDeviceInfo(),
+        });
+      }
+
+      // only count active time when visible + active
+      const visible = !document.hidden;
+      const active = isActiveRef.current;
+
+      if (visible && active) {
+        // throttle heartbeat if needed
+        if (now - lastHeartbeatAtRef.current >= HEARTBEAT_SEC * 1000) {
+          lastHeartbeatAtRef.current = now;
+          engagedSecondsRef.current += HEARTBEAT_SEC;
+
+          void send({
+            event: "heartbeat",
+            visitorId: visitorIdRef.current || getOrCreateVisitorId(),
+            sessionId: sessionIdRef.current || getOrCreateSessionId(false),
+            userId: userId ?? null,
+            ts: now,
+            page: { path: pathname || "/", title: document.title, referrer: document.referrer || null },
+            utm: getUTM(new URLSearchParams(window.location.search)),
+            device: getDeviceInfo(),
+            engagement: { activeSeconds: HEARTBEAT_SEC },
+          });
+        }
+      }
+    };
+
+    const id = window.setInterval(tick, 1000);
+    return () => window.clearInterval(id);
+  }, [pathname, userId]);
+
+  return null;
+}
