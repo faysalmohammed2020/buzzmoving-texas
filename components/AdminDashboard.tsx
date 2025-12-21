@@ -1334,9 +1334,9 @@ const AdminDashboard: React.FC = () => {
                         </div>
                         <div>
                           <div className="text-sm font-semibold text-gray-900">{b.name}</div>
-                          <div className="text-xs text-gray-500">
+                          {/* <div className="text-xs text-gray-500">
                             {numberFormatter.format(b.count)} users
-                          </div>
+                          </div> */}
                         </div>
                       </div>
 

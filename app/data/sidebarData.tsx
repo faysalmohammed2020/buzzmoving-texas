@@ -1,6 +1,8 @@
 import { JSX } from "react";
 import { LuLayoutDashboard } from "react-icons/lu";
 import { FaPenFancy } from "react-icons/fa";
+import { AiOutlineBarChart } from "react-icons/ai";
+
 
 // Define the structure of each sidebar item
 export interface SidebarItem {
@@ -25,12 +27,12 @@ export const sidebarItems: SidebarItem[] = [
     icon: <FaPenFancy className="size-6" />,
   },
 
-  // // Analytics
-  // {
-  //   href: "/dashboard/analytics",
-  //   label: "Analytics",
-  //   icon: <AiOutlineBarChart className="size-6" />,
-  // },
+  // Analytics
+  {
+    href: "/admin/dashboard/analytics",
+    label: "Analytics",
+    icon: <AiOutlineBarChart className="size-6" />,
+  },
 
   // // Site Settings
   // {
