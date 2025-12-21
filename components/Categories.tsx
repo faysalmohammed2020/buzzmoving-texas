@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useEffect, useMemo, useState } from "react";
+import Link from "next/link";
 import {
   Accordion,
   AccordionItem,
@@ -23,6 +24,17 @@ const normalize = (v: unknown) =>
   String(v ?? "")
     .toLowerCase()
     .trim();
+
+function slugify(input: string) {
+  return (input || "")
+    .toLowerCase()
+    .normalize("NFKD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/&/g, "and")
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 120);
+}
 
 // ✅ category name extractor (all possible API shapes)
 const getPostCategoryName = (post: BlogPost) => {
@@ -67,6 +79,7 @@ const Categories = () => {
       try {
         const res = await fetch("/api/blogpost?limit=500&page=1", {
           signal: controller.signal,
+          cache: "no-store",
         });
         if (!res.ok) throw new Error("Failed to load posts");
         const json = await res.json();
@@ -77,7 +90,6 @@ const Categories = () => {
           ? json.data
           : [];
 
-        // ✅ NO status filtering anymore (Draft included)
         setPosts(list);
       } catch (e: unknown) {
         if (!isAbortError(e)) console.error(e);
@@ -151,14 +163,20 @@ const Categories = () => {
 
                 <AccordionContent className="text-md text-gray-700 mt-2">
                   <ul className="list-none space-y-2">
-                    {postsInCategory.map((post) => (
-                      <li
-                        key={post.id}
-                        className="text-slate-800 hover:text-blue-600 hover:font-bold hover:underline"
-                      >
-                        <a href={`/blog/${post.id}`}>{post.post_title}</a>
-                      </li>
-                    ))}
+                    {postsInCategory.map((post) => {
+                      const s = slugify(post.post_title || "");
+                      return (
+                        <li
+                          key={post.id}
+                          className="text-slate-800 hover:text-blue-600 hover:font-bold hover:underline"
+                        >
+                          {/* ✅ new route: /:slug */}
+                          <Link href={`/${encodeURIComponent(s)}`}>
+                            {post.post_title}
+                          </Link>
+                        </li>
+                      );
+                    })}
 
                     {postsInCategory.length === 0 && (
                       <li className="text-gray-500">
