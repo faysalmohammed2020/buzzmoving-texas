@@ -7,21 +7,9 @@ import HeroSection from "@/components/hero";
 import RelatedPost from "@/components/RelatedPost";
 import VideoReviews from "@/components/VideoReview";
 import Categories from "./Categories";
-import MovingCalculator from "./MovingCostCalculator";
+
 
 const HomePage = () => {
-  useEffect(() => {
-    const key = "visited_home_session";
-    if (sessionStorage.getItem(key)) return;
-    sessionStorage.setItem(key, "1");
-
-    fetch("/api/visits", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ slug: "home" }),
-      keepalive: true,
-    }).catch(() => {});
-  }, []);
 
   return (
     <div className="relative">
