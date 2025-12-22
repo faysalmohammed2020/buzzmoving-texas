@@ -138,27 +138,7 @@ model BlogPost {
   comment_count         Int?
   createdAt             DateTime? @default(now())
 }
-model VisitCounter {
-  id        Int      @id @default(autoincrement())
-  slug      String
-  dayKey    String   // ✅ "YYYY-MM-DD"
-  count     Int      @default(0)
-  updatedAt DateTime @updatedAt
 
-  @@unique([slug, dayKey]) // ✅ per day per page
-  @@index([dayKey])
-}
-
-model VisitLog {
-  id        Int      @id @default(autoincrement())
-  slug      String
-  ip        String
-  dayKey    String   // ✅ "YYYY-MM-DD"
-  createdAt DateTime @default(now())
-
-  @@unique([slug, ip, dayKey]) // ✅ same IP counts once per day
-  @@index([slug, dayKey])
-}
 enum AnalyticsEventName {
   session_start
   page_view

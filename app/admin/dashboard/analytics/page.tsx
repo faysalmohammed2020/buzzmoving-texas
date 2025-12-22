@@ -1,6 +1,13 @@
 "use client";
 
-import React, { useCallback, useEffect, useMemo, useState, useTransition } from "react";
+import React, {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  useTransition,
+} from "react";
 import {
   BarChart,
   Bar,
@@ -32,7 +39,7 @@ import {
 
 type TrendInfo = { value: string; isPositive: boolean };
 type AnalyticsBucket = "hour" | "day";
-type RangePreset = "24h" | "7d" | "30d" | "custom";
+type RangePreset = "today" | "24h" | "7d" | "30d" | "custom";
 
 type AnalyticsSummary = {
   kpis: {
@@ -41,6 +48,14 @@ type AnalyticsSummary = {
     activeTimeSec: number;
     avgActiveTimeSec: number;
   };
+
+  live?: {
+    windowSec: number;
+    users: number;
+    since?: string;
+    now?: string;
+  };
+
   series: { t: string; visitors: number; pageViews: number }[];
   topPages: { path: string; views: number; avgActiveTimeSec: number }[];
   sources: { name: string; count: number }[];
@@ -56,7 +71,6 @@ type AnalyticsSummary = {
   };
 };
 
-// ---------- helpers ----------
 const numberFormatter = new Intl.NumberFormat();
 
 const fmtSec = (sec: number) => {
@@ -80,6 +94,20 @@ function isAbortError(err: unknown) {
   return err instanceof DOMException && err.name === "AbortError";
 }
 
+function startOfDayLocal(d: Date) {
+  const x = new Date(d);
+  x.setHours(0, 0, 0, 0);
+  return x;
+}
+function parseLocalDate(dateStr: string) {
+  const [y, m, day] = dateStr.split("-").map(Number);
+  if (!y || !m || !day) return null;
+  return new Date(y, m - 1, day, 0, 0, 0, 0);
+}
+function isValidDate(d: Date) {
+  return d instanceof Date && !isNaN(d.getTime());
+}
+
 const pct = (part: number, total: number) =>
   total <= 0 ? 0 : Math.round((part / total) * 1000) / 10;
 
@@ -94,15 +122,13 @@ const PIE_COLORS = [
   "#84cc16",
 ];
 
-// ---------- Skeleton helpers ----------
-const SkeletonBox: React.FC<{ className?: string }> = React.memo(function SkeletonBox({
-  className = "",
-}) {
-  return <div className={`animate-pulse bg-gray-200 rounded ${className}`} />;
-});
+const SkeletonBox: React.FC<{ className?: string }> = React.memo(
+  function SkeletonBox({ className = "" }) {
+    return <div className={`animate-pulse bg-gray-200 rounded ${className}`} />;
+  }
+);
 SkeletonBox.displayName = "SkeletonBox";
 
-// ---------- Stat Card ----------
 interface StatCardProps {
   title: string;
   value: string | number;
@@ -110,6 +136,7 @@ interface StatCardProps {
   icon: React.ReactNode;
   color: string;
   loading?: boolean;
+  subText?: string;
 }
 const StatCard: React.FC<StatCardProps> = React.memo(function StatCard({
   title,
@@ -117,6 +144,7 @@ const StatCard: React.FC<StatCardProps> = React.memo(function StatCard({
   icon,
   color,
   loading,
+  subText,
 }) {
   return (
     <div className="bg-white rounded-xl shadow-sm p-5 hover:shadow-md transition-shadow">
@@ -130,6 +158,7 @@ const StatCard: React.FC<StatCardProps> = React.memo(function StatCard({
               <h3 className="text-2xl font-bold text-gray-800">{value}</h3>
             )}
           </div>
+          {!!subText && <div className="mt-1 text-xs text-gray-500">{subText}</div>}
         </div>
         <div className={`p-3 rounded-lg ${color}`}>{icon}</div>
       </div>
@@ -138,10 +167,8 @@ const StatCard: React.FC<StatCardProps> = React.memo(function StatCard({
 });
 StatCard.displayName = "StatCard";
 
-// ---------- Browser Logo ----------
 const BrowserLogo: React.FC<{ name?: string }> = ({ name }) => {
   const n = (name || "").toLowerCase();
-
   if (n.includes("chrome")) return <FaChrome className="text-blue-600" />;
   if (n.includes("firefox")) return <FaFirefoxBrowser className="text-orange-500" />;
   if (n.includes("safari")) return <FaSafari className="text-sky-500" />;
@@ -149,11 +176,9 @@ const BrowserLogo: React.FC<{ name?: string }> = ({ name }) => {
   if (n.includes("opera")) return <FaOpera className="text-red-500" />;
   if (n.includes("ie") || n.includes("internet explorer"))
     return <FaInternetExplorer className="text-sky-700" />;
-
   return <FaGlobeAmericas className="text-gray-500" />;
 };
 
-// ---------- Page ----------
 export default function AnalyticsPage() {
   const [analyticsLoading, setAnalyticsLoading] = useState(true);
   const [analyticsError, setAnalyticsError] = useState<string | null>(null);
@@ -161,7 +186,9 @@ export default function AnalyticsPage() {
   const [rangePreset, setRangePreset] = useState<RangePreset>("7d");
   const [bucket, setBucket] = useState<AnalyticsBucket>("day");
   const [tab, setTab] = useState<"traffic" | "sources" | "geo" | "devices">("traffic");
-  const [deviceTab, setDeviceTab] = useState<"deviceType" | "browser" | "os">("deviceType");
+  const [deviceTab, setDeviceTab] = useState<"deviceType" | "browser" | "os">(
+    "deviceType"
+  );
 
   const [customFrom, setCustomFrom] = useState<string>("");
   const [customTo, setCustomTo] = useState<string>("");
@@ -169,52 +196,128 @@ export default function AnalyticsPage() {
   const [analytics, setAnalytics] = useState<AnalyticsSummary | null>(null);
   const [isPending, startTransition] = useTransition();
 
+  // ✅ auto refresh controls
+  const [isRefreshing, setIsRefreshing] = useState(false);
+  const lastFetchAtRef = useRef<number>(0);
+  const REFRESH_MS = 15_000;
+
+  const effectiveBucket: AnalyticsBucket = useMemo(() => {
+    if (rangePreset === "today" || rangePreset === "24h") return "hour";
+    return bucket;
+  }, [rangePreset, bucket]);
+
   const resolveRange = useCallback(() => {
     const now = new Date();
-    if (rangePreset === "24h")
+
+    if (rangePreset === "today") {
+      return { from: startOfDayLocal(now), to: now, bucket: "hour" as AnalyticsBucket };
+    }
+    if (rangePreset === "24h") {
       return { from: addDays(now, -1), to: now, bucket: "hour" as AnalyticsBucket };
+    }
     if (rangePreset === "7d") return { from: addDays(now, -7), to: now, bucket };
     if (rangePreset === "30d") return { from: addDays(now, -30), to: now, bucket };
 
-    const f = customFrom ? new Date(customFrom) : addDays(now, -7);
-    const t = customTo ? new Date(customTo) : now;
-    return { from: f, to: t, bucket };
+    const f0 = customFrom ? parseLocalDate(customFrom) : addDays(now, -7);
+    const t0 = customTo ? parseLocalDate(customTo) : now;
+
+    if (!f0 || !t0 || !isValidDate(f0) || !isValidDate(t0)) {
+      return { from: addDays(now, -7), to: now, bucket };
+    }
+
+    const toExclusive = customTo ? addDays(t0, 1) : t0;
+    return { from: f0, to: toExclusive, bucket };
   }, [rangePreset, bucket, customFrom, customTo]);
 
+  const fetchAnalytics = useCallback(
+    async (signal?: AbortSignal, isBgRefresh?: boolean) => {
+      const { from, to, bucket: resolvedBucket } = resolveRange();
+
+      if (!(from instanceof Date) || !(to instanceof Date) || from >= to) {
+        throw new Error("Invalid date range (from must be earlier than to).");
+      }
+
+      const qs = new URLSearchParams({
+        from: toISO(from),
+        to: toISO(to),
+        bucket: resolvedBucket,
+      });
+
+      if (isBgRefresh) setIsRefreshing(true);
+
+      const res = await fetch(`/api/admin/analytics/summary?${qs.toString()}`, {
+        cache: "no-store",
+        signal,
+      });
+
+      if (!res.ok) {
+        const bodyText = await res.text().catch(() => "");
+        throw new Error(
+          `Analytics API failed (${res.status}): ${bodyText || res.statusText}`
+        );
+      }
+
+      const data = (await res.json()) as AnalyticsSummary;
+      startTransition(() => setAnalytics(data));
+      lastFetchAtRef.current = Date.now();
+
+      if (isBgRefresh) setIsRefreshing(false);
+    },
+    [resolveRange, startTransition]
+  );
+
+  // first load
   useEffect(() => {
     const controller = new AbortController();
 
-    const loadAnalytics = async () => {
+    const load = async () => {
       setAnalyticsLoading(true);
       setAnalyticsError(null);
       try {
-        const { from, to, bucket: resolvedBucket } = resolveRange();
-        const qs = new URLSearchParams({
-          from: toISO(from),
-          to: toISO(to),
-          bucket: resolvedBucket,
-        });
-
-        const res = await fetch(`/api/admin/analytics/summary?${qs.toString()}`, {
-          cache: "no-store",
-          signal: controller.signal,
-        });
-        if (!res.ok) throw new Error("Failed to load analytics");
-        const data = (await res.json()) as AnalyticsSummary;
-
-        startTransition(() => setAnalytics(data));
+        await fetchAnalytics(controller.signal, false);
       } catch (e) {
         if (isAbortError(e)) return;
         console.error(e);
-        setAnalyticsError("Failed to load analytics.");
+        setAnalyticsError(e instanceof Error ? e.message : "Failed to load analytics.");
       } finally {
         setAnalyticsLoading(false);
       }
     };
 
-    loadAnalytics();
+    load();
     return () => controller.abort();
-  }, [resolveRange]);
+  }, [fetchAnalytics]);
+
+  // auto refresh loop (pause on hidden)
+  useEffect(() => {
+    const tick = async () => {
+      if (document.visibilityState !== "visible") return;
+
+      const elapsed = Date.now() - lastFetchAtRef.current;
+      if (elapsed < REFRESH_MS - 200) return;
+
+      const controller = new AbortController();
+      try {
+        await fetchAnalytics(controller.signal, true);
+      } catch (e) {
+        if (isAbortError(e)) return;
+        console.warn("Auto refresh failed:", e);
+        setIsRefreshing(false);
+      }
+    };
+
+    const timer = setInterval(tick, REFRESH_MS);
+
+    const onVis = () => {
+      if (document.visibilityState === "visible") tick();
+    };
+    document.addEventListener("visibilitychange", onVis);
+
+    return () => {
+      clearInterval(timer);
+      document.removeEventListener("visibilitychange", onVis);
+    };
+  }, [fetchAnalytics]);
 
   // memo rows
   const deviceTypeRows = useMemo(() => analytics?.devices?.deviceType ?? [], [analytics]);
@@ -232,14 +335,23 @@ export default function AnalyticsPage() {
     [deviceTypeRows]
   );
 
+  const liveUsers = analytics?.live?.users ?? 0;
+  const liveWindowSec = analytics?.live?.windowSec ?? 0;
+
   return (
     <div className="p-6 bg-gray-50 min-h-screen">
       {/* Header */}
-      <div className="mb-6">
-        <h1 className="text-2xl font-bold text-gray-900">Analytics</h1>
-        <p className="text-sm text-gray-500 mt-1">
-          Visitors, page views, active time, sources, geo & devices
-        </p>
+      <div className="mb-6 flex items-start justify-between gap-3">
+        <div>
+          <h1 className="text-2xl font-bold text-gray-900">Analytics</h1>
+          <p className="text-sm text-gray-500 mt-1">
+            Visitors, page views, active time, sources, geo & devices
+          </p>
+        </div>
+
+        <div className="text-xs text-gray-500 mt-2">
+          {analyticsLoading ? "Loading..." : isRefreshing ? "Updating..." : "Live"}
+        </div>
       </div>
 
       {/* Controls */}
@@ -251,6 +363,7 @@ export default function AnalyticsPage() {
               onChange={(e) => setRangePreset(e.target.value as RangePreset)}
               className="text-sm border border-gray-300 rounded-lg px-3 py-2 bg-white"
             >
+              <option value="today">Today</option>
               <option value="24h">Last 24h</option>
               <option value="7d">Last 7 days</option>
               <option value="30d">Last 30d</option>
@@ -279,19 +392,39 @@ export default function AnalyticsPage() {
               value={bucket}
               onChange={(e) => setBucket(e.target.value as AnalyticsBucket)}
               className="text-sm border border-gray-300 rounded-lg px-3 py-2 bg-white"
-              disabled={rangePreset === "24h"}
-              title={rangePreset === "24h" ? "24h uses hourly buckets" : ""}
+              disabled={rangePreset === "24h" || rangePreset === "today"}
+              title={
+                rangePreset === "24h" || rangePreset === "today"
+                  ? "This range uses hourly buckets"
+                  : ""
+              }
             >
               <option value="hour">Hourly</option>
               <option value="day">Daily</option>
             </select>
+
+            <button
+              type="button"
+              onClick={() => fetchAnalytics(undefined, true).catch(() => {})}
+              className="text-sm px-3 py-2 rounded-lg border border-gray-200 bg-gray-50 hover:bg-white"
+            >
+              Refresh
+            </button>
           </div>
 
           {analyticsError && <div className="text-sm text-red-600">{analyticsError}</div>}
         </div>
 
         {/* KPI Cards */}
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-5 mt-5">
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-5 mt-5">
+          <StatCard
+            title="Live Users"
+            value={analyticsLoading ? "…" : numberFormatter.format(liveUsers)}
+            icon={<FaEye className="text-xl text-rose-500" />}
+            color="bg-rose-100"
+            loading={analyticsLoading || isPending}
+            subText={liveWindowSec ? `last ${liveWindowSec}s` : undefined}
+          />
           <StatCard
             title="Total Visitors"
             value={analyticsLoading ? "…" : numberFormatter.format(analytics?.kpis.visitors ?? 0)}
@@ -378,7 +511,9 @@ export default function AnalyticsPage() {
                         tickLine={false}
                         axisLine={false}
                         tick={{ fill: "#6b7280", fontSize: 11 }}
-                        tickFormatter={(value) => (bucket === "hour" ? value.slice(11, 16) : value.slice(5, 10))}
+                        tickFormatter={(value) =>
+                          effectiveBucket === "hour" ? value.slice(11, 16) : value.slice(5, 10)
+                        }
                       />
                       <YAxis allowDecimals={false} tickLine={false} axisLine={false} tick={{ fill: "#6b7280", fontSize: 11 }} />
                       <Tooltip
@@ -432,7 +567,9 @@ export default function AnalyticsPage() {
                         tickLine={false}
                         axisLine={false}
                         tick={{ fill: "#6b7280", fontSize: 11 }}
-                        tickFormatter={(value) => (bucket === "hour" ? value.slice(11, 16) : value.slice(5, 10))}
+                        tickFormatter={(value) =>
+                          effectiveBucket === "hour" ? value.slice(11, 16) : value.slice(5, 10)
+                        }
                       />
                       <YAxis allowDecimals={false} tickLine={false} axisLine={false} tick={{ fill: "#6b7280", fontSize: 11 }} />
                       <Tooltip
@@ -445,7 +582,12 @@ export default function AnalyticsPage() {
                         formatter={(value) => [value, "Page Views"]}
                         labelFormatter={(label) => `Time: ${label}`}
                       />
-                      <Bar dataKey="pageViews" fill="url(#pageViewsGradient)" radius={[6, 6, 0, 0]} barSize={bucket === "hour" ? 12 : 24} />
+                      <Bar
+                        dataKey="pageViews"
+                        fill="url(#pageViewsGradient)"
+                        radius={[6, 6, 0, 0]}
+                        barSize={effectiveBucket === "hour" ? 12 : 24}
+                      />
                     </ComposedChart>
                   </ResponsiveContainer>
                 </div>
@@ -593,7 +735,9 @@ export default function AnalyticsPage() {
               {!analytics.geo?.enabled ? (
                 <div className="p-6 bg-white rounded-xl border border-gray-200 text-center">
                   <p className="text-gray-600 mb-2">Geo analytics not configured</p>
-                  <p className="text-sm text-gray-500">Enable server-side IP → country/city mapping to see geographic data</p>
+                  <p className="text-sm text-gray-500">
+                    Enable server-side IP → country/city mapping to see geographic data
+                  </p>
                 </div>
               ) : (
                 <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
@@ -712,13 +856,16 @@ export default function AnalyticsPage() {
                 <div className="bg-white rounded-xl border border-gray-200 p-5 shadow-sm">
                   <div className="mb-1">
                     <h3 className="text-sm font-semibold text-gray-900">Browser Usage</h3>
-                    <p className="text-xs text-gray-500">Top browsers with icons + percentage</p>
+                    <p className="text-xs text-gray-500">
+                      Top browsers with icons + percentage
+                    </p>
                   </div>
 
                   {browserRows?.length ? (
                     <div className="mt-4 space-y-4">
                       {(() => {
-                        const total = browserRows.reduce((a, x) => a + (x.count || 0), 0) || 0;
+                        const total =
+                          browserRows.reduce((a, x) => a + (x.count || 0), 0) || 0;
                         return browserRows.slice(0, 12).map((b, i) => {
                           const p = pct(b.count, total);
                           return (
@@ -728,14 +875,21 @@ export default function AnalyticsPage() {
                                   <div className="w-9 h-9 rounded-lg bg-gray-50 border border-gray-200 flex items-center justify-center">
                                     <BrowserLogo name={b.name} />
                                   </div>
-                                  <div className="text-sm font-semibold text-gray-900">{b.name}</div>
+                                  <div className="text-sm font-semibold text-gray-900">
+                                    {b.name}
+                                  </div>
                                 </div>
 
-                                <div className="text-sm text-gray-700 font-medium">{p.toFixed(1)}%</div>
+                                <div className="text-sm text-gray-700 font-medium">
+                                  {p.toFixed(1)}%
+                                </div>
                               </div>
 
                               <div className="h-2 w-full rounded-full bg-gray-100 overflow-hidden">
-                                <div className="h-2 rounded-full bg-indigo-600" style={{ width: `${Math.min(100, p)}%` }} />
+                                <div
+                                  className="h-2 rounded-full bg-indigo-600"
+                                  style={{ width: `${Math.min(100, p)}%` }}
+                                />
                               </div>
                             </div>
                           );
@@ -766,7 +920,10 @@ export default function AnalyticsPage() {
                               <span className="text-gray-500">{p.toFixed(1)}%</span>
                             </div>
                             <div className="h-2 w-full rounded-full bg-gray-100 overflow-hidden">
-                              <div className="h-2 rounded-full bg-blue-600" style={{ width: `${Math.min(100, p)}%` }} />
+                              <div
+                                className="h-2 rounded-full bg-blue-600"
+                                style={{ width: `${Math.min(100, p)}%` }}
+                              />
                             </div>
                           </div>
                         );

@@ -18,15 +18,13 @@ export async function GET(req: Request) {
     searchParams.get("from"),
     new Date(now.getTime() - 7 * 24 * 3600 * 1000)
   );
+
   const bucket = (searchParams.get("bucket") === "hour" ? "hour" : "day") as
     | "hour"
     | "day";
 
   if (to <= from) {
-    return NextResponse.json(
-      { ok: false, error: "Invalid range" },
-      { status: 400 }
-    );
+    return NextResponse.json({ ok: false, error: "Invalid range" }, { status: 400 });
   }
 
   const bucketSql =
@@ -34,8 +32,13 @@ export async function GET(req: Request) {
       ? Prisma.sql`date_trunc('hour', "ts")`
       : Prisma.sql`date_trunc('day', "ts")`;
 
-  // KPIs
-  const [pageViewsAgg, activeAgg, uniqVisitorsRows] = await Promise.all([
+  // ✅ LIVE USERS (NEW)
+  // last 5 min heartbeat => live
+  const LIVE_WINDOW_SEC = 1 * 60;
+  const liveSince = new Date(now.getTime() - LIVE_WINDOW_SEC * 1000);
+
+  // KPIs + live users
+  const [pageViewsAgg, activeAgg, uniqVisitorsRows, liveUsersRows] = await Promise.all([
     prisma.analyticsEvent.count({
       where: { ts: { gte: from, lt: to }, event: "page_view" },
     }),
@@ -48,12 +51,19 @@ export async function GET(req: Request) {
       select: { visitorId: true },
       distinct: ["visitorId"],
     }),
+    prisma.analyticsEvent.findMany({
+      where: { ts: { gte: liveSince, lt: now }, event: "heartbeat" },
+      select: { visitorId: true },
+      distinct: ["visitorId"],
+    }),
   ]);
 
   const visitors = uniqVisitorsRows.length;
   const pageViews = pageViewsAgg;
   const activeTimeSec = activeAgg._sum.activeSeconds ?? 0;
   const avgActiveTimeSec = visitors > 0 ? Math.floor(activeTimeSec / visitors) : 0;
+
+  const liveUsers = liveUsersRows.length;
 
   // series
   const series = await prisma.$queryRaw<
@@ -136,7 +146,7 @@ export async function GET(req: Request) {
     `),
   ]);
 
-  // ✅ GEO (NEW)
+  // geo
   const [countries, cities] = await Promise.all([
     prisma.$queryRaw<Array<{ name: string; count: bigint }>>(Prisma.sql`
       SELECT COALESCE(NULLIF("country", ''), 'unknown') AS name, COUNT(*) AS count
@@ -158,6 +168,15 @@ export async function GET(req: Request) {
 
   return NextResponse.json({
     kpis: { visitors, pageViews, activeTimeSec, avgActiveTimeSec },
+
+    // ✅ Live Users in same response
+    live: {
+      windowSec: LIVE_WINDOW_SEC,
+      users: liveUsers,
+      since: liveSince.toISOString(),
+      now: now.toISOString(),
+    },
+
     series: series.map((r) => ({
       t: r.t.toISOString(),
       visitors: Number(r.visitors ?? 0),
