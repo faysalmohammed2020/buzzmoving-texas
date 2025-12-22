@@ -6,6 +6,7 @@ import Script from "next/script";
 
 // ✅ add this line
 import AnalyticsTracker from "@/components/AnalyticsTracker";
+import { Suspense } from "react";
 
 const geistSans = Geist({ variable: "--font-geist-sans", subsets: ["latin"] });
 const geistMono = Geist_Mono({
@@ -50,8 +51,9 @@ export default function RootLayout({
         className={`${geistSans.variable} ${geistMono.variable} antialiased`}
       >
         {/* ✅ GA-like custom analytics tracker */}
+         <Suspense fallback={null}>
         <AnalyticsTracker />
-
+      </Suspense>
         <Providers>{children}</Providers>
       </body>
     </html>
