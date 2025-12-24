@@ -123,12 +123,6 @@ const SigninForm = () => {
           </form>
         </Form>
 
-        <div className="mt-5 space-x-1 text-center text-sm">
-          <Link href="/auth/forgot-password" className="text-sm text-muted-foreground hover:underline">
-            Forgot password?
-          </Link>
-        </div>
-
         {/* 👇 New: Don't have an account? */}
         <div className="mt-2 text-center text-sm">
           <span className="text-muted-foreground">Don&apos;t have an account? </span>
