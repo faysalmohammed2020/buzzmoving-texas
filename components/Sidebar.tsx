@@ -11,14 +11,8 @@ import {
   LuLogOut,
   LuUser,
   LuSettings,
-  LuSun,
-  LuMoon
 } from "react-icons/lu";
-import { 
-  HiOutlineBell,
-  HiOutlineCog,
-  HiOutlineQuestionMarkCircle
-} from "react-icons/hi";
+
 import { signOut, useSession } from "@/lib/auth-client";
 
 type AppUser = {
@@ -41,7 +35,6 @@ const Sidebar: React.FC = () => {
   const [showProfileMenu, setShowProfileMenu] = useState(false);
   const [showHoverLabel, setShowHoverLabel] = useState<string | null>(null);
   const [hoverTimeout, setHoverTimeout] = useState<NodeJS.Timeout | null>(null);
-  const [darkMode, setDarkMode] = useState(false);
   const profileMenuRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
