@@ -423,7 +423,6 @@ export default function AnalyticsPage() {
             icon={<FaEye className="text-xl text-rose-500" />}
             color="bg-rose-100"
             loading={analyticsLoading || isPending}
-            subText={liveWindowSec ? `last ${liveWindowSec}s` : undefined}
           />
           <StatCard
             title="Total Visitors"
