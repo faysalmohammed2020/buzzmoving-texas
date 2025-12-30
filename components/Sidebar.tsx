@@ -246,22 +246,6 @@ const Sidebar: React.FC = () => {
                   <p className="text-xs text-slate-400 truncate">{user?.email || ""}</p>
                 </div>
                 
-                {/* Menu Items */}
-                <div className="py-2">
-                  <button className="flex items-center gap-3 w-full px-4 py-2.5 text-sm text-slate-300 hover:bg-slate-700/50 hover:text-white transition-all rounded-lg mx-1">
-                    <LuUser className="size-4" />
-                    <span>Profile</span>
-                  </button>
-                  
-                  <button className="flex items-center gap-3 w-full px-4 py-2.5 text-sm text-slate-300 hover:bg-slate-700/50 hover:text-white transition-all rounded-lg mx-1">
-                    <LuSettings className="size-4" />
-                    <span>Preferences</span>
-                  </button>
-                </div>
-                
-                {/* Divider */}
-                <div className="border-t border-slate-700 my-2" />
-                
                 {/* Sign Out */}
                 <button
                   className="flex items-center gap-3 w-full px-4 py-2.5 text-sm text-red-300 hover:bg-red-500/10 hover:text-red-200 transition-all rounded-lg mx-1"
