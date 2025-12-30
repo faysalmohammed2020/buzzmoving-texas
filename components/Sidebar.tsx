@@ -11,6 +11,7 @@ import {
   LuLogOut,
   LuUser,
   LuSettings,
+  
 } from "react-icons/lu";
 
 import { signOut, useSession } from "@/lib/auth-client";
@@ -250,11 +251,6 @@ const Sidebar: React.FC = () => {
                   <button className="flex items-center gap-3 w-full px-4 py-2.5 text-sm text-slate-300 hover:bg-slate-700/50 hover:text-white transition-all rounded-lg mx-1">
                     <LuUser className="size-4" />
                     <span>Profile</span>
-                  </button>
-                  
-                  <button className="flex items-center gap-3 w-full px-4 py-2.5 text-sm text-slate-300 hover:bg-slate-700/50 hover:text-white transition-all rounded-lg mx-1">
-                    <HiOutlineCog className="size-4" />
-                    <span>Settings</span>
                   </button>
                   
                   <button className="flex items-center gap-3 w-full px-4 py-2.5 text-sm text-slate-300 hover:bg-slate-700/50 hover:text-white transition-all rounded-lg mx-1">
