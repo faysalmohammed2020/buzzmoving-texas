@@ -19,7 +19,6 @@ interface Blog {
   createdAt: string;
   imageUrl: string;
   excerpt: string;
-  slug?: string; // ✅ backend slug থাকলে use করো
 }
 
 interface BlogResponse {
@@ -82,7 +81,7 @@ const BlogCardSkeleton: React.FC = React.memo(() => (
 BlogCardSkeleton.displayName = "BlogCardSkeleton";
 
 const BlogCard: React.FC<{ post: Blog }> = React.memo(({ post }) => {
-  const postDateText = useMemo(
+  const postDate = useMemo(
     () =>
       new Date(post.createdAt).toLocaleDateString("en-US", {
         year: "numeric",
@@ -93,18 +92,10 @@ const BlogCard: React.FC<{ post: Blog }> = React.memo(({ post }) => {
   );
 
   const safeImg = normalizeImageUrl(post.imageUrl);
-
-  // ✅ Prefer backend slug (if you have), otherwise title slug
-  const postSlug = useMemo(() => {
-    const raw = post.slug ? post.slug : post.post_title || "";
-    return slugify(raw);
-  }, [post.slug, post.post_title]);
-
-  // ✅ Option A structure: /blog/{slug}
-  const href = `/blog/${encodeURIComponent(postSlug)}`;
+  const postSlug = useMemo(() => slugify(post.post_title || ""), [post.post_title]);
 
   return (
-    <Link href={href} className="group">
+    <Link href={`/${encodeURIComponent(postSlug)}`} className="group">
       <div className="bg-white rounded-2xl overflow-hidden shadow-xl hover:shadow-2xl transition-all duration-300 transform group-hover:-translate-y-1 h-full flex flex-col border border-gray-100">
         <div className="relative w-full h-48 overflow-hidden">
           <Image
@@ -123,17 +114,14 @@ const BlogCard: React.FC<{ post: Blog }> = React.memo(({ post }) => {
             {post.post_category}
           </span>
 
-          {/* ✅ List page H1 already, so cards H2 */}
           <h2 className="text-2xl font-bold text-gray-900 leading-tight mb-3 group-hover:text-indigo-700 transition-colors">
             {post.post_title}
           </h2>
 
-          {/* ✅ remove extra ... */}
-          <p className="text-gray-600 line-clamp-3 flex-grow">{post.excerpt}</p>
+          <p className="text-gray-600 line-clamp-3 flex-grow">{post.excerpt}...</p>
 
           <div className="mt-5 pt-4 border-t border-gray-100 flex items-center justify-between text-sm text-gray-500">
-            {/* ✅ semantic time */}
-            <time dateTime={new Date(post.createdAt).toISOString()}>{postDateText}</time>
+            <span>{postDate}</span>
           </div>
         </div>
       </div>
@@ -168,11 +156,7 @@ export default function BlogPageClient({
   const didMountRef = useRef(false);
 
   const pageCacheRef = useRef<Map<number, Blog[]>>(new Map());
-
-  // ✅ cache initial page only once
-  useEffect(() => {
-    pageCacheRef.current.set(initialPage, initialBlogs);
-  }, [initialPage, initialBlogs]);
+  pageCacheRef.current.set(initialPage, initialBlogs);
 
   const fetchPage = useCallback(
     async (page: number, controller: AbortController) => {
@@ -195,9 +179,10 @@ export default function BlogPageClient({
           setTotalPages(json.meta?.totalPages || 1);
         });
 
-        // ✅ prefetch next page in background
         if (page < (json.meta?.totalPages || 1)) {
-          fetch(`/api/blogpost?page=${page + 1}&limit=${postsPerPage}`, { cache: "no-store" })
+          fetch(`/api/blogpost?page=${page + 1}&limit=${postsPerPage}`, {
+            cache: "no-store",
+          })
             .then((r) => r.json())
             .then((nextJson: BlogResponse) => {
               pageCacheRef.current.set(page + 1, nextJson.data || []);
@@ -241,8 +226,10 @@ export default function BlogPageClient({
 
   const getPageNumbers = () => {
     const maxVisiblePages = 3;
-    if (totalPages <= 6) return Array.from({ length: totalPages }, (_, i) => i + 1);
-    if (currentPage <= maxVisiblePages) return [1, 2, 3, "...", totalPages];
+    if (totalPages <= 6)
+      return Array.from({ length: totalPages }, (_, i) => i + 1);
+    if (currentPage <= maxVisiblePages)
+      return [1, 2, 3, "...", totalPages];
     if (currentPage > totalPages - maxVisiblePages)
       return [1, "...", totalPages - 2, totalPages - 1, totalPages];
     return [1, "...", currentPage - 1, currentPage, currentPage + 1, "...", totalPages];
@@ -278,7 +265,9 @@ export default function BlogPageClient({
 
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-x-8 gap-y-12">
           {blogs.length === 0 && pageLoading
-            ? Array.from({ length: postsPerPage }).map((_, i) => <BlogCardSkeleton key={i} />)
+            ? Array.from({ length: postsPerPage }).map((_, i) => (
+                <BlogCardSkeleton key={i} />
+              ))
             : blogs.map((post) => <BlogCard key={post.id} post={post} />)}
         </div>
 
@@ -289,9 +278,7 @@ export default function BlogPageClient({
                 onClick={() => paginate(currentPage - 1)}
                 disabled={currentPage === 1}
                 className={`px-4 py-2 text-sm font-medium rounded-lg transition ${
-                  currentPage === 1
-                    ? "text-gray-400 cursor-not-allowed"
-                    : "text-gray-700 hover:bg-gray-100"
+                  currentPage === 1 ? "text-gray-400 cursor-not-allowed" : "text-gray-700 hover:bg-gray-100"
                 }`}
               >
                 ← Prev
@@ -320,28 +307,12 @@ export default function BlogPageClient({
                 onClick={() => paginate(currentPage + 1)}
                 disabled={currentPage === totalPages}
                 className={`px-4 py-2 text-sm font-medium rounded-lg transition ${
-                  currentPage === totalPages
-                    ? "text-gray-400 cursor-not-allowed"
-                    : "text-gray-700 hover:bg-gray-100"
+                  currentPage === totalPages ? "text-gray-400 cursor-not-allowed" : "text-gray-700 hover:bg-gray-100"
                 }`}
               >
                 Next →
               </button>
             </nav>
-          </div>
-        )}
-
-        {/* ✅ SEO: crawlable pagination links (UI change হবে না) */}
-        {totalPages > 1 && (
-          <div className="sr-only" aria-hidden="true">
-            <h2>Blog Pagination</h2>
-            <ul>
-              {Array.from({ length: totalPages }, (_, i) => i + 1).map((p) => (
-                <li key={p}>
-                  <a href={`/blog?page=${p}`}>Blog page {p}</a>
-                </li>
-              ))}
-            </ul>
           </div>
         )}
       </div>
