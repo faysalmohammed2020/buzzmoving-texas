@@ -1,12 +1,12 @@
 "use client";
 
-import { useEffect } from "react";
 import CustomerReviews from "@/components/CustomerReview";
 import EmailSubscription from "@/components/EmailSubmission";
 import HeroSection from "@/components/hero";
 import RelatedPost from "@/components/RelatedPost";
 import VideoReviews from "@/components/VideoReview";
 import Categories from "./Categories";
+import HomeSeoSection from "./HomeSeoSection";
 
 
 const HomePage = () => {
@@ -40,6 +40,7 @@ const HomePage = () => {
       {/* Main Content */}
       <div className="overflow-y-auto">
         <HeroSection />
+        <h1 className="sr-only">Moving Quote Texas - Local & Long Distance Movers</h1>
 
         <div>
           <h2 className="text-3xl font-bold text-center mt-7 pl-5">
@@ -51,6 +52,7 @@ const HomePage = () => {
         </div>
 
         <RelatedPost currentPostID="119" />
+        <HomeSeoSection />
         <CustomerReviews />
         <VideoReviews />
         <Categories />
