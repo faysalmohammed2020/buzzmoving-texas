@@ -2,14 +2,13 @@ import type { MetadataRoute } from "next";
 
 export default function robots(): MetadataRoute.Robots {
   const siteUrl =
-    process.env.NEXT_PUBLIC_BASE_URL?.replace(/\/$/, "") ||
-    "https://movingquotetexas.com/";
+    (process.env.NEXT_PUBLIC_BASE_URL || "https://www.movingquotetexas.com").replace(/\/$/, "");
 
   return {
     rules: [
       {
         userAgent: "*",
-        allow: "/",
+        allow: ["/", "/_next/static/", "/_next/image/"],
         disallow: [
           "/admin/",
           "/dashboard/",
@@ -17,12 +16,11 @@ export default function robots(): MetadataRoute.Robots {
           "/login/",
           "/register/",
           "/api/",
-          "/_next/",
           "/private/",
         ],
       },
     ],
     sitemap: [`${siteUrl}/sitemap.xml`],
-    host: "https://movingquotetexas.com/",
+    host: siteUrl,
   };
 }

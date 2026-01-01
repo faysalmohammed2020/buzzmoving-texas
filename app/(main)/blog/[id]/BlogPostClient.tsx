@@ -409,7 +409,7 @@ export default function BlogPostClient({ slug }: { slug: string }) {
   return (
     <>
       <Head>
-        <title>{`${title} | Moving Quote Texas Blog`}</title>
+        <title>{`${title}`}</title>
         <meta name="description" content={description} />
         {keywords && <meta name="keywords" content={keywords} />}
         <link rel="canonical" href={canonical} />
@@ -427,7 +427,7 @@ export default function BlogPostClient({ slug }: { slug: string }) {
         <meta property="og:description" content={description} />
         <meta property="og:url" content={canonical} />
         <meta name="twitter:card" content="summary" />
-        <meta name="twitter:title" content={`${title} | Moving Quote Texas Blog`} />
+        <meta name="twitter:title" content={`${title}`} />
         <meta name="twitter:description" content={description} />
         {jsonLd && (
           <script

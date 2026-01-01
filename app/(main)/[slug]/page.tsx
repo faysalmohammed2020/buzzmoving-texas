@@ -48,7 +48,7 @@ export async function generateMetadata(
       "Read this article on Moving Quote Texas Blog.";
 
     return {
-      title: `${title} | Moving Quote Texas Blog`,
+      title: `${title}`,
       description: desc,
       alternates: { canonical },
       openGraph: {
