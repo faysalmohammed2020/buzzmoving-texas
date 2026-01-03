@@ -32,8 +32,8 @@ export async function generateMetadata(
 
     if (!res.ok) {
       return {
-        title: "Moving Quote Texas",
-        robots: { index: false, follow: false },
+        title: "Moving Quote Texas Blogs",
+        robots: { index: true, follow: true },
         alternates: { canonical },
       };
     }
@@ -41,7 +41,7 @@ export async function generateMetadata(
     const data = await res.json();
 
     const titleRaw = data?.post_title ? String(data.post_title) : "";
-    const title = titleRaw || "Moving Quote Texas";
+    const title = titleRaw || "Moving Quote Texas Blogs";
 
     const desc =
       stripHtml(String(data?.post_content ?? "")).slice(0, 160) ||
