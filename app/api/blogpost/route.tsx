@@ -99,32 +99,41 @@ export async function POST(req: Request) {
 export async function PUT(req: Request) {
   try {
     const body = await req.json();
-    const { id, post_title, post_content, category, tags, post_status } =
-      body ?? {};
+    const { id, post_title, post_content, category, tags, post_status } = body ?? {};
 
-    if (!id) {
-      return NextResponse.json({ error: "ID is required" }, { status: 400 });
+    const numericId = Number(id);
+    if (!numericId || Number.isNaN(numericId)) {
+      return NextResponse.json({ error: "Valid ID is required" }, { status: 400 });
     }
 
-    const data: Prisma.BlogPostUpdateInput = {}; // ✅ any removed
+    const data: Prisma.BlogPostUpdateInput = {};
     if (post_title !== undefined) data.post_title = post_title;
     if (post_content !== undefined) data.post_content = post_content;
     if (category !== undefined) data.category = category;
     if (tags !== undefined) data.tags = tags || "";
-    if (post_status !== undefined) data.post_status = post_status;
+
+    // ✅ post_status accepts: publish | draft | unpublish
+    if (post_status !== undefined) {
+      const s = String(post_status).toLowerCase().trim();
+      const allowed = new Set(["publish", "draft", "unpublish"]);
+      if (!allowed.has(s)) {
+        return NextResponse.json(
+          { error: 'Invalid post_status. Allowed: "publish", "draft", "unpublish"' },
+          { status: 400 }
+        );
+      }
+      data.post_status = s;
+    }
 
     if (Object.keys(data).length === 0) {
-      return NextResponse.json(
-        { error: "No fields to update" },
-        { status: 400 }
-      );
+      return NextResponse.json({ error: "No fields to update" }, { status: 400 });
     }
 
     data.post_modified = new Date();
     data.post_modified_gmt = new Date();
 
     const updatedBlogPost = await prisma.blogPost.update({
-      where: { id },
+      where: { id: numericId },
       data,
     });
 
@@ -137,6 +146,9 @@ export async function PUT(req: Request) {
     );
   }
 }
+
+
+
 
 // -------------------- DELETE --------------------
 export async function DELETE(req: Request) {
@@ -168,7 +180,6 @@ export async function DELETE(req: Request) {
 }
 
 // -------------------- GET: single OR list --------------------
-// -------------------- GET: single OR list --------------------
 export async function GET(req: Request) {
   try {
     const { searchParams } = new URL(req.url);
@@ -192,11 +203,12 @@ export async function GET(req: Request) {
     if (slugParamRaw) {
       const slugParam = slugifyServer(slugParamRaw);
 
-      // 1) Try quick "contains" search to reduce scan
-      // (Not perfect but fast; then validate slugify match)
       const candidate = await prisma.blogPost.findFirst({
         where: {
-          post_title: { contains: slugParamRaw.replace(/-/g, " "), mode: "insensitive" },
+          post_title: {
+            contains: slugParamRaw.replace(/-/g, " "),
+            mode: "insensitive",
+          },
         },
         select: {
           id: true,
@@ -204,7 +216,7 @@ export async function GET(req: Request) {
           post_content: true,
           category: true,
           tags: true,
-          post_status: true,
+          post_status: true, // ✅ already good
           createdAt: true,
           post_date: true,
           post_excerpt: true,
@@ -223,14 +235,12 @@ export async function GET(req: Request) {
             excerpt: candidate.post_excerpt || excerpt,
             readTime,
             imageUrl,
-            slug: slugifyServer(candidate.post_title || ""), // ✅ helpful for canonical
+            slug: slugifyServer(candidate.post_title || ""),
           },
           { status: 200 }
         );
       }
 
-      // 2) Fallback scan (titles only) then fetch by id
-      // We avoid fetching post_content for all rows
       const titles = await prisma.blogPost.findMany({
         select: { id: true, post_title: true },
         orderBy: { createdAt: "desc" },
@@ -250,7 +260,7 @@ export async function GET(req: Request) {
           post_content: true,
           category: true,
           tags: true,
-          post_status: true,
+          post_status: true, // ✅ already good
           createdAt: true,
           post_date: true,
           post_excerpt: true,
@@ -292,7 +302,7 @@ export async function GET(req: Request) {
           post_content: true,
           category: true,
           tags: true,
-          post_status: true,
+          post_status: true, // ✅ already good
           createdAt: true,
           post_date: true,
           post_excerpt: true,
@@ -313,7 +323,7 @@ export async function GET(req: Request) {
           excerpt: post.post_excerpt || excerpt,
           readTime,
           imageUrl,
-          slug: slugifyServer(post.post_title || ""), // ✅ helpful for canonical
+          slug: slugifyServer(post.post_title || ""),
         },
         { status: 200 }
       );
@@ -329,6 +339,7 @@ export async function GET(req: Request) {
           comment_status: true,
           createdAt: true,
           post_date: true,
+          post_status: true, // ✅ ADD (so dashboard also shows correct status)
         },
         orderBy: { createdAt: "desc" },
       });
@@ -339,7 +350,12 @@ export async function GET(req: Request) {
     const titlesOnly = searchParams.get("titles");
     if (titlesOnly === "1") {
       const titles = await prisma.blogPost.findMany({
-        select: { id: true, post_title: true, createdAt: true },
+        select: {
+          id: true,
+          post_title: true,
+          createdAt: true,
+          post_status: true, // ✅ optional but helpful (keep if you want)
+        },
         orderBy: { createdAt: "desc" },
       });
 
@@ -375,7 +391,7 @@ export async function GET(req: Request) {
         post_content: true,
         category: true,
         tags: true,
-        post_status: true,
+        post_status: true, // ✅ already good
         createdAt: true,
         post_excerpt: true,
       },
@@ -394,7 +410,7 @@ export async function GET(req: Request) {
           post_content: rawContent,
           post_category: item.category || "General",
           post_tags: item.tags || "",
-          post_status: item.post_status,
+          post_status: item.post_status, // ✅ keep
           createdAt: item.createdAt,
           post_excerpt: item.post_excerpt || "",
           _hasRealImage: hasImageFast(rawContent),
@@ -422,25 +438,23 @@ export async function GET(req: Request) {
     const totalPages = Math.ceil(total / limit) || 1;
     const pageSlice = sortable.slice(skip, skip + limit);
 
-   const paginated = pageSlice.map((item) => {
-  const { readTime, excerpt, imageUrl } = computeMetaFromContent(item.post_content);
+    const paginated = pageSlice.map((item) => {
+      const { readTime, excerpt, imageUrl } = computeMetaFromContent(item.post_content);
+      const slug = slugifyServer(item.post_title || "");
 
-  const slug = slugifyServer(item.post_title || "");
-
-  return {
-    id: item.id,
-    slug, // ✅ ADD THIS
-    post_title: item.post_title,
-    post_category: item.post_category,
-    post_tags: item.post_tags,
-    post_status: item.post_status,
-    createdAt: item.createdAt,
-    imageUrl,
-    excerpt: item.post_excerpt || excerpt,
-    readTime,
-  };
-});
-
+      return {
+        id: item.id,
+        slug,
+        post_title: item.post_title,
+        post_category: item.post_category,
+        post_tags: item.post_tags,
+        post_status: item.post_status, // ✅ keep
+        createdAt: item.createdAt,
+        imageUrl,
+        excerpt: item.post_excerpt || excerpt,
+        readTime,
+      };
+    });
 
     return NextResponse.json(
       {
@@ -456,10 +470,8 @@ export async function GET(req: Request) {
     );
   } catch (error) {
     console.error("Error fetching blog posts:", error ?? "unknown error");
-    return NextResponse.json(
-      { error: "Failed to fetch blog posts." },
-      { status: 500 }
-    );
+    return NextResponse.json({ error: "Failed to fetch blog posts." }, { status: 500 });
   }
 }
+
 

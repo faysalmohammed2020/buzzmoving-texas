@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useRef, useEffect, useMemo, useCallback } from "react";
+import React, { useEffect, useState, useMemo } from "react";
 import Link from "next/link";
 import { ChevronDown, Menu, X } from "lucide-react";
 import { VscAccount } from "react-icons/vsc";
@@ -15,10 +15,11 @@ interface Blog {
   _titleLower: string;
 }
 
-// ✅ API title-only item shape
+// ✅ API title-only item shape (add post_status)
 type BlogTitleItem = {
   id: number | string;
   post_title?: unknown;
+  post_status?: unknown; // ✅ add
 };
 
 // ✅ New/Old API response (no any)
@@ -48,10 +49,16 @@ function slugify(input: string) {
     .slice(0, 120);
 }
 
+// ✅ publish-only checker
+const isPublishStatus = (status: unknown) =>
+  String(status || "")
+    .toLowerCase()
+    .trim() === "publish";
+
 const HeaderMenu: React.FC = () => {
   const [isMobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [hoveredMenu, setHoveredMenu] = useState<string | null>(null);
-  const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const timeoutRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const [isHovered, setIsHovered] = useState<boolean>(false);
 
@@ -66,7 +73,7 @@ const HeaderMenu: React.FC = () => {
   const { data: session } = useSession();
   const router = useRouter();
 
-  const handleSignOut = useCallback(async () => {
+  const handleSignOut = React.useCallback(async () => {
     try {
       await signOut();
     } catch (e: unknown) {
@@ -84,7 +91,7 @@ const HeaderMenu: React.FC = () => {
 
   /**
    * ✅ Fetch ALL titles reliably (titles=1)
-   * - directly returns array (your API)
+   * ✅ Only show publish posts
    */
   useEffect(() => {
     if (hoveredMenu !== "blogs" || hasLoadedBlogs) return;
@@ -111,14 +118,19 @@ const HeaderMenu: React.FC = () => {
           ? raw.data
           : [];
 
-        const mapped: Blog[] = list.map((item) => {
-          const title = String(item?.post_title ?? "");
-          return {
-            id: Number(item.id),
-            post_title: title,
-            _titleLower: title.toLowerCase(),
-          };
-        });
+        // ✅ ONLY publish items
+        const publishOnly = list.filter((item) => isPublishStatus(item?.post_status));
+
+        const mapped: Blog[] = publishOnly
+          .map((item) => {
+            const title = String(item?.post_title ?? "").trim();
+            return {
+              id: Number(item.id),
+              post_title: title,
+              _titleLower: title.toLowerCase(),
+            };
+          })
+          .filter((b) => b.post_title.length > 0);
 
         setBlogs(mapped);
         setHasLoadedBlogs(true);
@@ -351,10 +363,7 @@ const HeaderMenu: React.FC = () => {
                                   href={`/${encodeURIComponent(blogSlug)}`}
                                   className="text-sm sm:text-base font-medium text-gray-800 hover:underline hover:text-orange-600"
                                 >
-                                  {renderHighlightedTitle(
-                                    blog.post_title,
-                                    debouncedQuery
-                                  )}
+                                  {renderHighlightedTitle(blog.post_title, debouncedQuery)}
                                 </Link>
                               </div>
                             );

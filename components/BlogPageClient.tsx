@@ -19,6 +19,9 @@ interface Blog {
   createdAt: string;
   imageUrl: string;
   excerpt: string;
+
+  // ✅ from API
+  post_status?: "publish" | "draft" | "unpublish" | string;
 }
 
 interface BlogResponse {
@@ -94,7 +97,7 @@ const BlogCard: React.FC<{ post: Blog }> = React.memo(({ post }) => {
   const safeImg = normalizeImageUrl(post.imageUrl);
   const postSlug = useMemo(() => slugify(post.post_title || ""), [post.post_title]);
 
-  // ✅ Option 1: blog details route is app/[slug]/page.tsx => "/{slug}"
+  // ✅ blog details route is "/{slug}"
   const href = `/${encodeURIComponent(postSlug)}`;
 
   return (
@@ -117,16 +120,13 @@ const BlogCard: React.FC<{ post: Blog }> = React.memo(({ post }) => {
             {post.post_category}
           </span>
 
-          {/* List page has H1 already, so cards use H2 */}
           <h2 className="text-2xl font-bold text-gray-900 leading-tight mb-3 group-hover:text-indigo-700 transition-colors">
             {post.post_title}
           </h2>
 
-          {/* ✅ remove extra ... */}
           <p className="text-gray-600 line-clamp-3 flex-grow">{post.excerpt}</p>
 
           <div className="mt-5 pt-4 border-t border-gray-100 flex items-center justify-between text-sm text-gray-500">
-            {/* ✅ semantic time */}
             <time dateTime={new Date(post.createdAt).toISOString()}>{postDateText}</time>
           </div>
         </div>
@@ -140,6 +140,13 @@ function isAbortError(err: unknown) {
   return err instanceof DOMException && err.name === "AbortError";
 }
 
+// ✅ helper: keep only published posts
+function onlyPublished(list: Blog[]) {
+  return (list || []).filter(
+    (p) => String(p.post_status || "").toLowerCase().trim() === "publish"
+  );
+}
+
 export default function BlogPageClient({
   initialBlogs,
   initialMeta,
@@ -151,7 +158,9 @@ export default function BlogPageClient({
 }) {
   const initialPage = initialMeta.page || 1;
 
-  const [blogs, setBlogs] = useState<Blog[]>(initialBlogs);
+  // ✅ filter initial blogs too (SSR initial list)
+  const [blogs, setBlogs] = useState<Blog[]>(() => onlyPublished(initialBlogs));
+
   const [currentPage, setCurrentPage] = useState(initialPage);
   const [totalPages, setTotalPages] = useState(initialMeta.totalPages || 1);
 
@@ -162,9 +171,9 @@ export default function BlogPageClient({
   const didMountRef = useRef(false);
   const pageCacheRef = useRef<Map<number, Blog[]>>(new Map());
 
-  // ✅ cache initial page only once
+  // ✅ cache initial page (filtered)
   useEffect(() => {
-    pageCacheRef.current.set(initialPage, initialBlogs);
+    pageCacheRef.current.set(initialPage, onlyPublished(initialBlogs));
   }, [initialPage, initialBlogs]);
 
   const fetchPage = useCallback(
@@ -181,19 +190,24 @@ export default function BlogPageClient({
 
         const json: BlogResponse = await res.json();
 
-        pageCacheRef.current.set(page, json.data || []);
+        // ✅ filter here so unpublished never shows
+        const publishedOnly = onlyPublished(json.data || []);
+
+        pageCacheRef.current.set(page, publishedOnly);
 
         startTransition(() => {
-          setBlogs(json.data || []);
+          setBlogs(publishedOnly);
           setTotalPages(json.meta?.totalPages || 1);
         });
 
-        // ✅ prefetch next page silently
+        // ✅ prefetch next page silently (cache filtered)
         if (page < (json.meta?.totalPages || 1)) {
-          fetch(`/api/blogpost?page=${page + 1}&limit=${postsPerPage}`, { cache: "no-store" })
+          fetch(`/api/blogpost?page=${page + 1}&limit=${postsPerPage}`, {
+            cache: "no-store",
+          })
             .then((r) => r.json())
             .then((nextJson: BlogResponse) => {
-              pageCacheRef.current.set(page + 1, nextJson.data || []);
+              pageCacheRef.current.set(page + 1, onlyPublished(nextJson.data || []));
             })
             .catch(() => {});
         }
@@ -255,9 +269,12 @@ export default function BlogPageClient({
     <div className="bg-gray-50 min-h-screen py-16">
       <div className="container mx-auto px-4 max-w-7xl">
         <div className="text-center mb-12">
-          <h1 className="text-6xl font-extrabold text-gray-900 tracking-tight">Our Blogs</h1>
+          <h1 className="text-6xl font-extrabold text-gray-900 tracking-tight">
+            Our Blogs
+          </h1>
           <p className="mt-4 text-xl text-gray-600 max-w-2xl mx-auto">
-            Stay updated with our latest industry deep-dives, expert opinions, and essential guides.
+            Stay updated with our latest industry deep-dives, expert opinions, and essential
+            guides.
           </p>
         </div>
 
@@ -269,7 +286,9 @@ export default function BlogPageClient({
 
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-x-8 gap-y-12">
           {blogs.length === 0 && pageLoading
-            ? Array.from({ length: postsPerPage }).map((_, i) => <BlogCardSkeleton key={i} />)
+            ? Array.from({ length: postsPerPage }).map((_, i) => (
+                <BlogCardSkeleton key={i} />
+              ))
             : blogs.map((post) => <BlogCard key={post.id} post={post} />)}
         </div>
 

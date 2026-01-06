@@ -308,28 +308,6 @@ const AdminDashboard: React.FC = () => {
     return <FaGlobeAmericas className="text-gray-500" />;
   };
 
-  // ---------- Visitors (existing) ----------
-  useEffect(() => {
-    const controller = new AbortController();
-
-    const loadVisitors = async () => {
-      try {
-        const res = await fetch("/api/visits", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ slug: "home" }),
-          cache: "no-store",
-          signal: controller.signal,
-        });
-
-        const json: { count?: number } = await res.json();
-        setTotalVisitorsValue(json.count || 0);
-      } catch {}
-    };
-
-    loadVisitors();
-    return () => controller.abort();
-  }, []);
 
   // ---------- Lazy render full submissions table ----------
   useEffect(() => {

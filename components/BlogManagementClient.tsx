@@ -30,6 +30,12 @@ interface Blog {
   excerpt?: string;
   readTime?: number;
   _searchTitle?: string;
+
+  // ✅ DB field
+  post_status?: "publish" | "draft" | "unpublish" | string;
+
+  // ✅ UI derived
+  isPublished?: boolean;
 }
 
 interface BlogMeta {
@@ -100,7 +106,8 @@ const AdminBlogCard: React.FC<{
   post: Blog;
   onEdit: (b: Blog) => void;
   onDelete: (id: number) => void;
-}> = React.memo(({ post, onEdit, onDelete }) => {
+  onTogglePublish: (id: number, nextPublished: boolean) => void;
+}> = React.memo(({ post, onEdit, onDelete, onTogglePublish }) => {
   const safeImg = normalizeImageUrl(post.imageUrl);
 
   const postDate = useMemo(
@@ -114,6 +121,12 @@ const AdminBlogCard: React.FC<{
         : "—",
     [post.createdAt]
   );
+
+  const status = String(post.post_status ?? "unpublish").toLowerCase().trim();
+  const published = status === "publish";
+
+  const badgeText =
+    status === "publish" ? "Published" : status === "draft" ? "Draft" : "Unpublished";
 
   return (
     <div className="bg-white rounded-2xl overflow-hidden shadow-xl hover:shadow-2xl transition-all duration-300 border border-gray-100 flex flex-col">
@@ -139,22 +152,42 @@ const AdminBlogCard: React.FC<{
           {post.post_title}
         </h2>
 
-        <p className="text-gray-600 line-clamp-3 flex-1">
-          {post.excerpt || "—"}
-        </p>
+        <p className="text-gray-600 line-clamp-3 flex-1">{post.excerpt || "—"}</p>
 
         <div className="mt-4 pt-3 border-t border-gray-100 flex items-center justify-between text-sm text-gray-500">
           <span>{postDate}</span>
           <span>{post.readTime || 1} min read</span>
         </div>
 
-        <div className="mt-4 flex gap-2">
+        {/* ✅ Status badge */}
+        <div className="mt-3">
+          <span
+            className={`inline-flex items-center px-2 py-1 text-xs font-semibold rounded-full ${
+              published ? "bg-green-100 text-green-700" : "bg-orange-100 text-orange-700"
+            }`}
+          >
+            {badgeText}
+          </span>
+        </div>
+
+        <div className="mt-4 flex gap-2 flex-wrap">
           <button
             onClick={() => onEdit(post)}
             className="px-3 py-2 text-sm bg-indigo-600 text-white rounded-lg hover:bg-indigo-700"
           >
             Edit
           </button>
+
+          {/* ✅ Toggle publish <-> unpublish */}
+          <button
+            onClick={() => onTogglePublish(post.id, !published)}
+            className={`px-3 py-2 text-sm text-white rounded-lg ${
+              published ? "bg-orange-600 hover:bg-orange-700" : "bg-green-600 hover:bg-green-700"
+            }`}
+          >
+            {published ? "Unpublish" : "Publish"}
+          </button>
+
           <button
             onClick={() => onDelete(post.id)}
             className="px-3 py-2 text-sm bg-red-600 text-white rounded-lg hover:bg-red-700"
@@ -181,10 +214,8 @@ const BlogManagementClient: React.FC<{
   const [isFormVisible, setIsFormVisible] = useState(false);
   const [editBlogData, setEditBlogData] = useState<Blog | null>(null);
 
-  // ✅ search input
   const [searchQuery, setSearchQuery] = useState("");
 
-  /** ✅ server-side pagination states */
   const [currentPage, setCurrentPage] = useState(initialMeta.page || 1);
   const [totalPages, setTotalPages] = useState(initialMeta.totalPages || 1);
   const [totalBlogs, setTotalBlogs] = useState(initialMeta.total || 0);
@@ -198,25 +229,17 @@ const BlogManagementClient: React.FC<{
   const [error, setError] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
 
-  /** ✅ force reload token */
   const [reloadTick, setReloadTick] = useState(0);
   const forceReload = useCallback(() => setReloadTick((t) => t + 1), []);
 
-  /** ✅ only skip fetch on VERY first mount */
   const didSkipInitial = useRef(false);
 
-  // ✅ search change হলে auto page-1
   useEffect(() => {
     setCurrentPage(1);
   }, [searchQuery]);
 
-  /** ✅ Fetch one page from server (NOW WITH GLOBAL SEARCH) */
   useEffect(() => {
-    if (
-      !didSkipInitial.current &&
-      currentPage === initialMeta.page &&
-      !searchQuery
-    ) {
+    if (!didSkipInitial.current && currentPage === initialMeta.page && !searchQuery) {
       didSkipInitial.current = true;
       return;
     }
@@ -231,7 +254,7 @@ const BlogManagementClient: React.FC<{
         const qs = new URLSearchParams();
         qs.set("page", String(currentPage));
         qs.set("limit", String(itemsPerPage));
-        if (searchQuery.trim()) qs.set("q", searchQuery.trim()); // ✅ GLOBAL SEARCH PARAM
+        if (searchQuery.trim()) qs.set("q", searchQuery.trim());
 
         const res = await fetch(`/api/blogpost?${qs.toString()}`, {
           signal: controller.signal,
@@ -244,19 +267,14 @@ const BlogManagementClient: React.FC<{
 
         const list: unknown[] = Array.isArray(json)
           ? json
-          : (json as BlogResponse).data ||
-            (json as BlogResponse).items ||
-            [];
+          : (json as BlogResponse).data || (json as BlogResponse).items || [];
 
         const meta: BlogMeta = Array.isArray(json)
           ? {
               page: currentPage,
               limit: itemsPerPage,
               total: list.length,
-              totalPages: Math.max(
-                1,
-                Math.ceil(list.length / itemsPerPage)
-              ),
+              totalPages: Math.max(1, Math.ceil(list.length / itemsPerPage)),
             }
           : (json as BlogResponse).meta || {
               page: currentPage,
@@ -286,7 +304,6 @@ const BlogManagementClient: React.FC<{
     return () => controller.abort();
   }, [currentPage, itemsPerPage, reloadTick, initialMeta.page, searchQuery]);
 
-  /** ✅ Local filter (safe backup) */
   const filteredPosts = useMemo(() => {
     const q = searchQuery.toLowerCase().trim();
     if (!q) return blogs;
@@ -301,9 +318,7 @@ const BlogManagementClient: React.FC<{
   const handleEditClick = useCallback(async (blog: Blog) => {
     if (!blog.post_content) {
       try {
-        const res = await fetch(`/api/blogpost?id=${blog.id}`, {
-          cache: "no-store",
-        });
+        const res = await fetch(`/api/blogpost?id=${blog.id}`, { cache: "no-store" });
         if (res.ok) {
           const full: unknown = await res.json();
           blog = mapApiToBlog(full);
@@ -316,8 +331,7 @@ const BlogManagementClient: React.FC<{
 
   const handleDeleteClick = useCallback(
     async (id: number) => {
-      if (!window.confirm("Are you sure you want to delete this blog post?"))
-        return;
+      if (!window.confirm("Are you sure you want to delete this blog post?")) return;
 
       setBlogs((prev) => prev.filter((b) => b.id !== id)); // optimistic
 
@@ -339,12 +353,63 @@ const BlogManagementClient: React.FC<{
     [forceReload]
   );
 
+  /** ✅ publish/unpublish -> SAVE to DB field post_status */
+  const handleTogglePublish = useCallback(
+    async (id: number, nextPublished: boolean) => {
+      const nextStatus: Blog["post_status"] = nextPublished ? "publish" : "unpublish";
+
+      // optimistic UI
+      setBlogs((prev) =>
+        prev.map((b) =>
+          b.id === id ? { ...b, post_status: nextStatus, isPublished: nextPublished } : b
+        )
+      );
+
+      try {
+        const res = await fetch("/api/blogpost", {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ id, post_status: nextStatus }),
+        });
+
+        const payload = await res.json().catch(() => null);
+
+        if (!res.ok) {
+          console.error("PUT failed:", res.status, payload);
+          throw new Error(payload?.error || "Failed to update status");
+        }
+
+        // server/DB truth -> UI sync
+        if (payload) {
+          const mapped = mapApiToBlog(payload);
+          setBlogs((prev) => prev.map((b) => (b.id === id ? mapped : b)));
+        } else {
+          forceReload();
+        }
+      } catch (e) {
+        // rollback
+        setBlogs((prev) =>
+          prev.map((b) =>
+            b.id === id
+              ? {
+                  ...b,
+                  post_status: nextPublished ? "unpublish" : "publish",
+                  isPublished: !nextPublished,
+                }
+              : b
+          )
+        );
+        alert("DB update failed. Please try again.");
+      }
+    },
+    [forceReload]
+  );
+
   const handleCloseModal = useCallback(() => {
     setIsFormVisible(false);
     setEditBlogData(null);
   }, []);
 
-  /** ✅ Blog updated/created -> go page 1 + force refetch */
   const handleUpdateBlog = useCallback(() => {
     setIsFormVisible(false);
     setEditBlogData(null);
@@ -361,21 +426,11 @@ const BlogManagementClient: React.FC<{
 
   const getPageNumbers = () => {
     const maxVisiblePages = 3;
-    if (totalPages <= 6)
-      return Array.from({ length: totalPages }, (_, i) => i + 1);
-    if (currentPage <= maxVisiblePages)
-      return [1, 2, 3, "...", totalPages];
+    if (totalPages <= 6) return Array.from({ length: totalPages }, (_, i) => i + 1);
+    if (currentPage <= maxVisiblePages) return [1, 2, 3, "...", totalPages];
     if (currentPage > totalPages - maxVisiblePages)
       return [1, "...", totalPages - 2, totalPages - 1, totalPages];
-    return [
-      1,
-      "...",
-      currentPage - 1,
-      currentPage,
-      currentPage + 1,
-      "...",
-      totalPages,
-    ];
+    return [1, "...", currentPage - 1, currentPage, currentPage + 1, "...", totalPages];
   };
 
   if (error) {
@@ -388,7 +443,6 @@ const BlogManagementClient: React.FC<{
 
   return (
     <div className="p-6 bg-gray-100 min-h-screen font-sans">
-      {/* Header */}
       <div className="flex flex-col md:flex-row md:justify-between md:items-center gap-4 mb-6">
         <h1 className="text-3xl font-bold">Blog Management</h1>
         <div className="flex gap-3">
@@ -425,12 +479,9 @@ const BlogManagementClient: React.FC<{
         </span>
       </div>
 
-      {/* Cards */}
       <section className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
         {pageLoading && blogs.length === 0 ? (
-          Array.from({ length: itemsPerPage }).map((_, i) => (
-            <SkeletonCard key={i} />
-          ))
+          Array.from({ length: itemsPerPage }).map((_, i) => <SkeletonCard key={i} />)
         ) : filteredPosts.length === 0 ? (
           <div className="col-span-full text-center text-gray-500 py-10">
             No posts found.
@@ -442,12 +493,12 @@ const BlogManagementClient: React.FC<{
               post={post}
               onEdit={handleEditClick}
               onDelete={handleDeleteClick}
+              onTogglePublish={handleTogglePublish}
             />
           ))
         )}
       </section>
 
-      {/* Pagination */}
       {totalPages > 1 && (
         <div className="flex justify-center mt-14">
           <nav className="flex space-x-1 p-2 bg-white rounded-xl shadow-lg border border-gray-200">
@@ -497,7 +548,6 @@ const BlogManagementClient: React.FC<{
         </div>
       )}
 
-      {/* Modal */}
       {isFormVisible && (
         <div
           className="fixed inset-0 bg-gray-500 bg-opacity-70 flex justify-center items-center z-50"
@@ -513,19 +563,12 @@ const BlogManagementClient: React.FC<{
               <h2 className="text-2xl font-bold">
                 {editBlogData ? "Edit Blog" : "Create New Blog"}
               </h2>
-              <button
-                onClick={handleCloseModal}
-                className="text-gray-500 font-bold text-xl"
-              >
+              <button onClick={handleCloseModal} className="text-gray-500 font-bold text-xl">
                 &times;
               </button>
             </div>
 
-            <Suspense
-              fallback={
-                <div className="h-40 bg-gray-100 rounded-xl animate-pulse" />
-              }
-            >
+            <Suspense fallback={<div className="h-40 bg-gray-100 rounded-xl animate-pulse" />}>
               <BlogPostForm
                 initialData={editBlogData}
                 onClose={handleCloseModal}
@@ -579,19 +622,22 @@ function mapApiToBlog(item: unknown): Blog {
   const wordCount = rawContent.split(/\s+/).filter(Boolean).length;
   const readTime = Math.max(1, Math.ceil(wordCount / 200));
 
+  // ✅ IMPORTANT: DB uses "publish" not "published"
+  const status = String(obj.post_status ?? "unpublish").toLowerCase().trim();
+  const isPublished = status === "publish";
+
   return {
     id: Number(obj.id),
     post_title: title,
     post_content: rawContent,
     post_category: String(obj.post_category || obj.category || ""),
     post_tags: String(obj.post_tags || obj.tags || ""),
-    createdAt: (obj.createdAt ?? obj.post_date ?? null) as
-      | string
-      | Date
-      | null,
+    createdAt: (obj.createdAt ?? obj.post_date ?? null) as string | Date | null,
     imageUrl,
     excerpt,
     readTime,
     _searchTitle: title.toLowerCase().trim(),
+    post_status: status,
+    isPublished,
   };
 }

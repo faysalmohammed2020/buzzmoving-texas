@@ -29,7 +29,7 @@ function slugify(input: string) {
     .slice(0, 120);
 }
 
-// image url normalize (Invalid URL fix)
+// ✅ image url normalize (Invalid URL fix)
 const normalizeImageUrl = (url?: string) => {
   if (!url) return null;
 
@@ -44,6 +44,10 @@ const normalizeImageUrl = (url?: string) => {
   return "/" + url;
 };
 
+// ✅ only allow published posts
+const isPublished = (p: ApiPost) =>
+  String(p.post_status || "").toLowerCase().trim() === "publish";
+
 const RelatedPost: React.FC<RelatedPostProps> = ({ currentPostID }) => {
   const [relatedPosts, setRelatedPosts] = useState<ApiPost[]>([]);
   const [loading, setLoading] = useState(true);
@@ -57,6 +61,7 @@ const RelatedPost: React.FC<RelatedPostProps> = ({ currentPostID }) => {
         setLoading(true);
         setError(null);
 
+        // ✅ public list endpoint (API already filters publish-only)
         const res = await fetch("/api/blogpost?limit=50&page=1", {
           method: "GET",
           cache: "no-store",
@@ -65,15 +70,17 @@ const RelatedPost: React.FC<RelatedPostProps> = ({ currentPostID }) => {
         if (!res.ok) throw new Error("Failed to fetch blog posts");
 
         const json = await res.json();
-
         const posts: ApiPost[] = Array.isArray(json?.data) ? json.data : [];
 
         const recentThree = posts
+          // ✅ show ONLY published (extra safety)
+          .filter(isPublished)
+          // ✅ remove current
           .filter((post) => String(post.id) !== String(currentPostID))
+          // ✅ latest
           .sort(
             (a, b) =>
-              new Date(b.createdAt).getTime() -
-              new Date(a.createdAt).getTime()
+              new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
           )
           .slice(0, 3)
           .map((p) => ({
@@ -116,6 +123,23 @@ const RelatedPost: React.FC<RelatedPostProps> = ({ currentPostID }) => {
     );
   }
 
+  // ✅ if no published related posts found
+  if (relatedPosts.length === 0) {
+    return (
+      <div className="container mx-auto px-4 pb-12">
+        <p className="text-center text-gray-500">No related posts found.</p>
+        <div className="flex justify-center items-center mt-6">
+          <Link
+            href="/blog"
+            className="px-4 py-2 bg-blue-600 text-white shadow-md hover:bg-blue-700 transition"
+          >
+            VIEW MORE
+          </Link>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="container mx-auto px-4 pb-12">
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
@@ -147,7 +171,6 @@ const RelatedPost: React.FC<RelatedPostProps> = ({ currentPostID }) => {
                 </p>
               )}
 
-              {/* ✅ root slug route */}
               <Link
                 href={href}
                 className="px-4 py-2 mt-4 inline-block text-sm rounded-[5px] font-medium text-white bg-blue-600 shadow hover:bg-blue-800 transition duration-300"
