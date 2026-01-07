@@ -14,8 +14,8 @@ import { placeData } from "@/app/data/placeData";
 type BlogPost = {
   id: number;
   post_title: string;
-  post_category?: string; // API field (string)
-  category?: string | { id?: number; name?: string }; // sometimes object/string
+  post_category?: string;
+  category?: string | { id?: number; name?: string };
   post_status?: string;
   createdAt?: string;
 };
@@ -57,6 +57,12 @@ const getPostCategoryId = (post: BlogPost) => {
   return undefined;
 };
 
+// ✅ ONLY publish checker
+const isPublished = (status: unknown) =>
+  String(status ?? "")
+    .toLowerCase()
+    .trim() === "publish";
+
 // ✅ AbortError guard (no any)
 const isAbortError = (err: unknown) => {
   if (err instanceof DOMException) return err.name === "AbortError";
@@ -82,6 +88,7 @@ const Categories = () => {
           cache: "no-store",
         });
         if (!res.ok) throw new Error("Failed to load posts");
+
         const json = await res.json();
 
         const list: BlogPost[] = Array.isArray(json)
@@ -90,7 +97,10 @@ const Categories = () => {
           ? json.data
           : [];
 
-        setPosts(list);
+        // ✅ FILTER: only published posts will be stored in state
+        const publishedOnly = list.filter((p) => isPublished(p.post_status));
+
+        setPosts(publishedOnly);
       } catch (e: unknown) {
         if (!isAbortError(e)) console.error(e);
       } finally {
@@ -141,10 +151,10 @@ const Categories = () => {
               const fuzzyKey = Object.keys(grouped).find(
                 (k) => k.includes(placeNameNorm) || placeNameNorm.includes(k)
               );
-              if (fuzzyKey) postsInCategory = grouped[fuzzyKey];
+              if (fuzzyKey) postsInCategory = grouped[fuzzyKey] || [];
             }
 
-            // ✅ also fallback by id if any API category object has id
+            // ✅ fallback by id
             if (postsInCategory.length === 0) {
               postsInCategory = posts.filter(
                 (p) => getPostCategoryId(p) === item.id
@@ -170,7 +180,6 @@ const Categories = () => {
                           key={post.id}
                           className="text-slate-800 hover:text-blue-600 hover:font-bold hover:underline"
                         >
-                          {/* ✅ new route: /:slug */}
                           <Link href={`/${encodeURIComponent(s)}`}>
                             {post.post_title}
                           </Link>
