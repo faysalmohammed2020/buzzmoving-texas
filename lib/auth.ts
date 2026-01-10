@@ -47,11 +47,18 @@ export const authOptions: NextAuthOptions = {
       credentials: { email: {}, password: {} },
       async authorize(c) {
         if (!c?.email || !c?.password) return null;
-        const user = await db.user.findUnique({ where: { email: c.email.toLowerCase().trim() } });
+        const user = await db.user.findUnique({
+          where: { email: c.email.toLowerCase().trim() },
+        });
         if (!user?.passwordHash) return null;
         const ok = await bcrypt.compare(c.password, user.passwordHash);
         if (!ok) return null;
-        return { id: user.id, email: user.email ?? undefined, name: user.name ?? undefined, role: user.role };
+        return {
+          id: user.id,
+          email: user.email ?? undefined,
+          name: user.name ?? undefined,
+          role: user.role,
+        };
       },
     }),
   ],
@@ -73,10 +80,13 @@ export const authOptions: NextAuthOptions = {
         session.user = {
           ...session.user,
           id: token.id as string,
-          role: token.role
+          role: token.role,
         };
       }
       return session;
     },
   },
 };
+
+// ✅ added export (no behavior change)
+export const auth = authOptions;

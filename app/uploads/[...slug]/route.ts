@@ -28,10 +28,12 @@ function guessContentType(ext: string) {
 
 export async function GET(
   _req: Request,
-  ctx: { params: { slug: string[] } }
+  ctx: { params: Promise<{ slug: string[] }> }
 ) {
   try {
-    const rel = ctx.params.slug.join("/");
+    const { slug } = await ctx.params; // ✅ await params first
+    const rel = slug.join("/");
+
     if (rel.includes("..")) {
       return NextResponse.json({ error: "Bad path" }, { status: 400 });
     }
@@ -40,7 +42,7 @@ export async function GET(
     const data = await fs.readFile(filePath);
     const ext = path.extname(filePath).toLowerCase();
 
-    return new NextResponse(data, {
+    return new NextResponse(new Uint8Array(data), {
       status: 200,
       headers: {
         "Content-Type": guessContentType(ext),
